@@ -9,19 +9,22 @@ along your trail.
 
 ## Try it
 
-```bash
-cd codezoom
-npm install
-npm run build
-npm link
+From the root of a Unity project (needs Node.js 22.23 or newer):
 
-cd ../examples/TinyTowers
-codezoom Tower
+```bash
+npx codezoom
 ```
 
-The first run in a project opens a setup page where you choose which
-assemblies are your code. See [codezoom/README.md](codezoom/README.md) for
-options.
+The first run opens a setup page where you choose which assemblies are your
+code. To try it on the demo project in this repo:
+
+```bash
+cd examples/TinyTowers
+npx codezoom Tower
+```
+
+See [codezoom/README.md](codezoom/README.md) for options and for building
+from source.
 
 ## What's here
 
@@ -36,8 +39,8 @@ options.
 
 ## Status
 
-Every v1 feature is built. The remaining v1 step is a sign-off by hand on a
-real project. codezoom isn't published to npm yet.
+codezoom 1.0.0 is [on npm](https://www.npmjs.com/package/codezoom). The last
+v1 step is a sign-off by hand: golden walks through a large real project.
 
 ## Credits
 

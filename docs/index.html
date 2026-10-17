@@ -156,11 +156,11 @@
 <div class="wrap">
 
   <header class="hero col">
-    <p class="eyebrow">grill-and-drill · v1 feature-complete</p>
+    <p class="eyebrow">grill-and-drill · codezoom 1.0.0 on npm</p>
     <h1>code<span>zoom</span></h1>
     <p class="lede">A tool for walking an unfamiliar Unity C# codebase one type at a time. You pick a type, and codezoom draws a UML diagram of everything connected to it. Click any neighbour and it becomes the centre. That is the whole loop, and it is how you learn the architecture.</p>
     <div class="facts">
-      <span>Unity C# first</span><span>runs in the browser</span><span>no Unity install needed to read code</span><span>moves draw in under 100 ms</span>
+      <span>Unity C# first</span><span>runs in the browser</span><span>no Unity install needed to read code</span><span>moves draw in under 100 ms</span><span>npx codezoom</span>
     </div>
   </header>
 
@@ -341,6 +341,7 @@
         <li><span class="mono">5781cf1</span>Works on a large production project</li>
         <li><span class="mono">f0e563c</span>Zoom animation, source panel, cache and watching, Weight sizing</li>
         <li><span class="mono">699dc54</span>Setup wizard: the last v1 feature</li>
+        <li><span class="mono">2f114e5</span>Golden walks and tests; published to npm as 1.0.0</li>
       </ol>
     </div>
   </section>
@@ -348,7 +349,7 @@
   <section>
     <header class="col">
       <p class="eyebrow">Where it stands</p>
-      <h2>Feature-complete, one sign-off away from v1</h2>
+      <h2>Released as 1.0.0, with one sign-off to go</h2>
     </header>
     <div class="status">
       <div>
@@ -359,14 +360,15 @@
           <li>Source panel with Open in Rider</li>
           <li>Per-file cache and live re-indexing</li>
           <li>Setup wizard for choosing own code</li>
+          <li>Golden walks: <code>codezoom walk</code> replays them, and 17 tests run before every publish</li>
+          <li>Published to npm as <a href="https://www.npmjs.com/package/codezoom">codezoom 1.0.0</a></li>
         </ul>
       </div>
       <div>
         <h3>Still open</h3>
         <ul>
           <li>The "golden walks" sign-off: about five Trails through a large real project, checked by hand</li>
-          <li>Not published to npm yet; installed from the repo with <code>npm link</code></li>
-          <li>No automated tests; <code>npm run check</code> only type-checks</li>
+          <li>Choosing v2: agent access, TypeScript projects, Unity assets as nodes, quality colouring, or a precise mode with Roslyn</li>
         </ul>
       </div>
       <div>
