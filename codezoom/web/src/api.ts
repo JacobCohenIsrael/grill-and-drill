@@ -2,6 +2,7 @@
 // never waits for the network (ADR 0004).
 
 import type { Meta, Screen } from "../../src/shared/types";
+import { highlightLines } from "./highlight";
 
 const cache = new Map<string, Screen>();
 const pending = new Map<string, Promise<void>>();
@@ -30,4 +31,51 @@ export async function loadScreens(ids: string[]): Promise<void> {
     for (const id of batch) pending.set(id, p);
   }
   await Promise.all(ids.map((id) => pending.get(id)).filter(Boolean));
+}
+
+export interface Source {
+  path: string;
+  /** One HTML string per line, already highlighted. */
+  lines: string[];
+}
+
+/** Forgets every screen and source: the index changed. */
+export function clearCaches() {
+  cache.clear();
+  sources.clear();
+}
+
+/** Calls back each time the server has rebuilt the index (files changed). */
+export function onIndexUpdate(callback: (event: { version: number; changed: string[] }) => void): () => void {
+  const events = new EventSource("/api/events");
+  events.addEventListener("index", (e) => callback(JSON.parse((e as MessageEvent).data)));
+  return () => events.close();
+}
+
+const sources = new Map<string, Promise<Source>>();
+
+/** An own-code file's text, highlighted; kept until the index changes. */
+export function loadSource(file: string): Promise<Source> {
+  let p = sources.get(file);
+  if (!p) {
+    p = fetch(`/api/source?path=${encodeURIComponent(file)}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`source: ${r.status}`);
+        return r.json() as Promise<{ path: string; text: string }>;
+      })
+      .then(({ path, text }) => ({ path, lines: highlightLines(text) }));
+    p.catch(() => sources.delete(file));
+    sources.set(file, p);
+  }
+  return p;
+}
+
+/** Asks the server to open the file at the line in the editor (Rider). */
+export async function openInEditor(path: string, line: number): Promise<boolean> {
+  const r = await fetch("/api/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Codezoom": "1" },
+    body: JSON.stringify({ path, line }),
+  });
+  return r.ok;
 }

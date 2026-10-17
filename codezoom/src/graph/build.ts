@@ -8,6 +8,8 @@ import type { EdgeKind } from "../shared/types.js";
 
 export interface Reference {
   member: string;
+  /** Made by the type declaration itself (base list, attributes, constraints), not by a member. */
+  typeLevel: boolean;
   file: string;
   line: number;
 }
@@ -96,7 +98,7 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[]): Graph {
     if (STRENGTH[kind] > STRENGTH[edge.kind]) edge.kind = kind;
     if (seen.has(place)) return;
     seen.add(place);
-    edge.refs.push({ member: r.member, file: r.from.file, line: r.line });
+    edge.refs.push({ member: r.member, typeLevel: isTypeLevel(r.member, r.from.name), file: r.from.file, line: r.line });
     graph.references++;
   };
 
@@ -115,6 +117,11 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[]): Graph {
   }
   for (const m of graph.out.values()) for (const e of m.values()) e.refs.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
   return graph;
+}
+
+/** The member labels the reader gives References made by a type's declaration (reader.ts). */
+function isTypeLevel(member: string, typeName: string): boolean {
+  return member === "base type" || member === "constraint" || member === "signature" || member.startsWith("[") || member === typeName;
 }
 
 function mapOf<K, V>(m: Map<string, Map<K, V>>, key: string): Map<K, V> {

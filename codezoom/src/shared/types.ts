@@ -26,8 +26,12 @@ export type RefWire = [string, number, number];
 export interface Neighbour {
   id: string;
   edge: EdgeKind;
-  /** Number of References behind the edge. */
+  /** Number of References behind the edge (R). */
   count: number;
+  /** Distinct members of the using type the References sit in (M); the declaration itself counts as one. */
+  members: number;
+  /** sqrt(R x M): how heavily the using end relies on the other. */
+  weight: number;
   /** Namespace distance to the Focus; foreign libraries sort last. */
   distance: number;
   /** In both rows. */
@@ -54,6 +58,8 @@ export interface FocusBox {
   hidden: number;
   file: number;
   line: number;
+  /** Every declaration of the type (a partial type has several): index into Meta.files, line. */
+  parts: { file: number; line: number }[];
   assembly: string;
 }
 
@@ -78,4 +84,8 @@ export interface Meta {
   nodes: NodeInfo[];
   files: string[];
   stats: IndexStats;
+  /** The editor "Open in …" launches, when one was found. */
+  editor?: string | null;
+  /** Goes up each time the index is rebuilt while the server runs. */
+  version?: number;
 }

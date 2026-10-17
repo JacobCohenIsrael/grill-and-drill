@@ -1,12 +1,14 @@
 // Full index of a Unity project: own code, foreign libraries, graph, screens.
 // The first slice re-indexes on every launch (no cache, no watching).
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { readFile } from "./csharp/reader.js";
 import type { FileFacts } from "./csharp/facts.js";
 import type { ForeignType } from "./csharp/resolver.js";
 import { readTypeDefs } from "./dotnet/metadata.js";
+import { IndexCache } from "./cache.js";
 import { buildGraph, type Graph } from "./graph/build.js";
 import { buildScreens, type Screens } from "./graph/screens.js";
 import { readCsprojs, type Csproj } from "./unity/csproj.js";
@@ -23,9 +25,13 @@ export interface Index {
   dlls: { read: number; missing: string[]; substituted: number; extraModules: number; editors: InstalledEditors };
   /** Every foreign type name read, for diagnostics. */
   foreign: ForeignType[];
+  /** Source files read afresh in this run; the rest came from the cache. */
+  changed: string[];
+  fromCache: number;
 }
 
-export function indexProject(root: string, configFile?: string): Index {
+export function indexProject(root: string, configFile?: string, cache: IndexCache = IndexCache.load(null)): Index {
+  cache.begin();
   const timings: Record<string, number> = {};
   let mark = performance.now();
   const lap = (name: string) => {
@@ -103,7 +109,7 @@ export function indexProject(root: string, configFile?: string): Index {
   for (const [path, assembly] of dllPaths) {
     const lib = libraryOf(assembly, path);
     try {
-      for (const d of readTypeDefs(path)) {
+      for (const d of cache.typeDefs(path, statSync(path), () => readTypeDefs(path))) {
         foreign.push({ full: d.namespace ? `${d.namespace}.${d.name}` : d.name, name: d.name, arity: d.arity, namespace: d.namespace, lib, isInterface: d.isInterface });
       }
       read++;
@@ -120,8 +126,28 @@ export function indexProject(root: string, configFile?: string): Index {
     ...[...fromSource].flatMap((p) => p.compile.filter((f) => f.endsWith(".cs")).map((path) => ({ path, assembly: p.assembly, lib: libraries.forProject(p) }))),
   ];
   const definesOf = new Map(projects.map((p) => [p.assembly, new Set(p.defines)]));
+  const contextOf = new Map(
+    projects.map((p) => [p.assembly, `${p.assembly}:${createHash("sha1").update(p.defines.join(";")).digest("hex").slice(0, 16)}`]),
+  );
+  const readSource = (path: string, assembly: string): FileFacts | null => {
+    let stamp;
+    try {
+      stamp = statSync(join(root, path));
+    } catch {
+      return null;
+    }
+    return cache.fileFacts(path, stamp, contextOf.get(assembly) ?? assembly, () => {
+      let text: string;
+      try {
+        text = readFileSync(join(root, path), "utf8");
+      } catch {
+        return null;
+      }
+      return readFile(path, assembly, text.replace(/^\uFEFF/, ""), definesOf.get(assembly));
+    });
+  };
   for (const f of vendorSources) {
-    const facts = readSource(root, f.path, f.assembly, definesOf.get(f.assembly));
+    const facts = readSource(f.path, f.assembly);
     if (!facts) continue;
     for (const t of facts.types) {
       if (t.outer) continue;
@@ -132,7 +158,7 @@ export function indexProject(root: string, configFile?: string): Index {
 
   const files: FileFacts[] = [];
   for (const f of own.files) {
-    const facts = readSource(root, f.path, f.assembly, definesOf.get(f.assembly));
+    const facts = readSource(f.path, f.assembly);
     if (facts) files.push(facts);
   }
   lap("parse");
@@ -152,16 +178,18 @@ export function indexProject(root: string, configFile?: string): Index {
   };
   const screens = buildScreens(graph, basename(root), stats);
   lap("screens");
+  cache.end();
   timings.total = Math.round(performance.now() - start);
-  return { root, own, graph, screens, timings, dlls: { read, missing: [...missing], substituted, extraModules, editors }, foreign };
+  return {
+    root,
+    own,
+    graph,
+    screens,
+    timings,
+    dlls: { read, missing: [...missing], substituted, extraModules, editors },
+    foreign,
+    changed: [...cache.changed],
+    fromCache: cache.hits,
+  };
 }
 
-function readSource(root: string, path: string, assembly: string, defines?: Set<string>): FileFacts | null {
-  let text: string;
-  try {
-    text = readFileSync(join(root, path), "utf8");
-  } catch {
-    return null;
-  }
-  return readFile(path, assembly, text.replace(/^\uFEFF/, ""), defines);
-}

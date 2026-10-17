@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { EdgeKind, NodeInfo, Screen } from "../../src/shared/types";
+  import type { EdgeKind, NodeInfo, RefWire, Screen } from "../../src/shared/types";
   import FocusBox from "./FocusBox.svelte";
   import Row from "./Row.svelte";
   import RefsPopover from "./RefsPopover.svelte";
   import { matchesName } from "../../src/shared/search";
-  import { BOX_H, ROW_VPAD, layoutRow, orderRow, type Box } from "./layout";
+  import { EDGE_WIDTH, ROW_VPAD, layoutRow, type Box, type RowLayout } from "./layout";
 
   interface Props {
     screen: Screen;
@@ -13,10 +13,13 @@
     nodes: Map<string, NodeInfo>;
     files: string[];
     previousId: string | null;
-    onDrill: (id: string) => void;
+    onDrill: (id: string, box?: Element) => void;
     onBack: () => void;
+    onOpenSource?: () => void;
+    /** The References behind the hovered neighbour's edge, or null. */
+    onHoverRefs?: (refs: RefWire[] | null) => void;
   }
-  let { screen, focus, nodes, files, previousId, onDrill, onBack }: Props = $props();
+  let { screen, focus, nodes, files, previousId, onDrill, onBack, onOpenSource, onHoverRefs }: Props = $props();
 
   let dependentsFilter = $state("");
   let dependenciesFilter = $state("");
@@ -27,18 +30,10 @@
   let layoutVersion = $state(0);
 
   const upper = $derived(
-    layoutRow(
-      orderRow(screen.dependents, previousId).filter((n) => matchesName(nodes.get(n.id)!, dependentsFilter)),
-      nodes,
-      previousId,
-    ),
+    layoutRow(screen.dependents, "dependents", (n) => matchesName(nodes.get(n.id)!, dependentsFilter), nodes, previousId),
   );
   const lower = $derived(
-    layoutRow(
-      orderRow(screen.dependencies, previousId).filter((n) => matchesName(nodes.get(n.id)!, dependenciesFilter)),
-      nodes,
-      previousId,
-    ),
+    layoutRow(screen.dependencies, "dependencies", (n) => matchesName(nodes.get(n.id)!, dependenciesFilter), nodes, previousId),
   );
 
   // ---- hover: References behind one edge ----
@@ -46,13 +41,19 @@
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   function hover(position: "above" | "below", box: Box | null, el: Element | null) {
     clearTimeout(hideTimer);
-    if (box && el) hovered = { box, position, anchor: el.getBoundingClientRect() };
-    else hideTimer = setTimeout(() => (hovered = null), 140);
+    if (box && el) {
+      hovered = { box, position, anchor: el.getBoundingClientRect() };
+      onHoverRefs?.(box.n.refs);
+    } else
+      hideTimer = setTimeout(() => {
+        hovered = null;
+        onHoverRefs?.(null);
+      }, 140);
   }
 
-  function pick(box: Box) {
+  function pick(box: Box, el: Element) {
     if (box.previous) onBack();
-    else onDrill(box.n.id);
+    else onDrill(box.n.id, el);
   }
 
   // ---- edges: only to boxes in view ----
@@ -61,6 +62,7 @@
     id: string;
     kind: EdgeKind;
     d: string;
+    width: number;
   }
   let frame = 0;
   function relayout() {
@@ -74,33 +76,50 @@
   const edges = $derived.by((): EdgeGeom[] => {
     void layoutVersion;
     if (!mainEl || !focusEl) return [];
-    const m = mainEl.getBoundingClientRect();
-    const f = focusEl.getBoundingClientRect();
+    // in this screen's own coordinates: during a zoom the whole screen is scaled
+    const outer = mainEl.getBoundingClientRect();
+    const scale = mainEl.offsetWidth ? outer.width / mainEl.offsetWidth : 1;
+    const local = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return new DOMRect(
+        outer.left + (r.left - outer.left) / scale,
+        outer.top + (r.top - outer.top) / scale,
+        r.width / scale,
+        r.height / scale,
+      );
+    };
+    const m = local(mainEl);
+    const f = local(focusEl);
     const out: EdgeGeom[] = [];
-    const add = (strip: HTMLDivElement | undefined, boxes: Box[], position: "above" | "below") => {
-      if (!strip) return;
-      const r = strip.getBoundingClientRect();
+    /** Every box in view in one row, left to right, with where its edge starts. */
+    const add = (strip: HTMLDivElement | undefined, row: RowLayout, position: "above" | "below") => {
+      if (!strip?.isConnected) return;
+      const r = local(strip);
       const scroll = strip.scrollLeft;
-      const inView = boxes.filter((b) => {
+      const ends: { b: Box; bx: number }[] = [];
+      for (const b of row.boxes) {
         const cx = b.x + b.w / 2 - scroll;
-        return cx >= 0 && cx <= r.width;
-      });
-      const spread = Math.min(f.width - 24, inView.length * 28);
-      inView.forEach((b, j) => {
-        const bx = r.left - m.left + b.x + b.w / 2 - scroll;
-        const fx = f.left - m.left + f.width / 2 - spread / 2 + (inView.length === 1 ? spread / 2 : (spread * j) / (inView.length - 1));
-        let x1: number, y1: number, x2: number, y2: number;
-        if (position === "above") {
-          [x1, y1, x2, y2] = [bx, r.top - m.top + ROW_VPAD + BOX_H, fx, f.top - m.top];
-        } else {
-          [x1, y1, x2, y2] = [fx, f.bottom - m.top, bx, r.top - m.top + ROW_VPAD];
-        }
+        if (cx < 0 || cx > r.width) continue; // edges only to boxes in view
+        ends.push({ b, bx: r.left - m.left + cx });
+      }
+      // the side of the row facing the Focus, shared by its boxes
+      const by = position === "above" ? r.top - m.top + ROW_VPAD + row.boxHeight : r.top - m.top + ROW_VPAD;
+      const spread = Math.min(f.width - 24, ends.length * 28);
+      ends.forEach(({ b, bx }, j) => {
+        const fx = f.left - m.left + f.width / 2 - spread / 2 + (ends.length === 1 ? spread / 2 : (spread * j) / (ends.length - 1));
+        const [x1, y1, x2, y2] = position === "above" ? [bx, by, fx, f.top - m.top] : [fx, f.bottom - m.top, bx, by];
         const ym = (y1 + y2) / 2;
-        out.push({ key: `${position}:${b.n.id}`, id: b.n.id, kind: b.n.edge, d: `M${x1},${y1} C${x1},${ym} ${x2},${ym} ${x2},${y2}` });
+        out.push({
+          key: `${position}:${b.n.id}`,
+          id: b.n.id,
+          kind: b.n.edge,
+          d: `M${x1},${y1} C${x1},${ym} ${x2},${ym} ${x2},${y2}`,
+          width: EDGE_WIDTH[b.size],
+        });
       });
     };
-    add(upperStrip, upper.boxes, "above");
-    add(lowerStrip, lower.boxes, "below");
+    add(upperStrip, upper, "above");
+    add(lowerStrip, lower, "below");
     return out;
   });
 
@@ -141,7 +160,14 @@
     </defs>
     {#each edges as e (e.key)}
       {@const hot = e.key === hotKey}
-      <path class="edge" class:hot d={e.d} stroke-dasharray={DASH[e.kind]} marker-end="url(#{HEAD[e.kind]}{hot ? '-hot' : ''})" />
+      <path
+        class="edge"
+        class:hot
+        d={e.d}
+        style:stroke-width={hot ? e.width + 0.8 : e.width}
+        stroke-dasharray={DASH[e.kind]}
+        marker-end="url(#{HEAD[e.kind]}{hot ? '-hot' : ''})"
+      />
     {/each}
   </svg>
 
@@ -149,8 +175,7 @@
     title="Dependents"
     hint="depend on {focus.name}"
     total={screen.dependents.length}
-    boxes={upper.boxes}
-    width={upper.width}
+    layout={upper}
     position="above"
     hoveredId={hovered?.position === "above" ? hovered.box.n.id : null}
     bind:filter={dependentsFilter}
@@ -161,7 +186,7 @@
   />
 
   <div class="middle">
-    <FocusBox node={focus} box={screen.focus} {files} bind:boxEl={focusEl} />
+    <FocusBox node={focus} box={screen.focus} {files} bind:boxEl={focusEl} {onOpenSource} />
     <div class="legend" aria-label="Edge kinds">
       <svg width="250" height="64">
         {#each [["inherits", "Inherits"], ["implements", "Implements"], ["has", "Has"], ["uses", "Uses"]] as [k, label], i (k)}
@@ -177,8 +202,7 @@
     title="Dependencies"
     hint="{focus.name} depends on"
     total={screen.dependencies.length}
-    boxes={lower.boxes}
-    width={lower.width}
+    layout={lower}
     position="below"
     hoveredId={hovered?.position === "below" ? hovered.box.n.id : null}
     bind:filter={dependenciesFilter}
@@ -205,6 +229,7 @@
 <style>
   .screen {
     position: relative;
+    flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;

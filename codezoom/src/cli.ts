@@ -2,15 +2,24 @@
 // open the browser at that Focus.
 
 import { spawn } from "node:child_process";
+import { join, resolve } from "node:path";
+import { IndexCache } from "./cache.js";
 import { indexProject } from "./indexer.js";
+import { watchProject } from "./watch.js";
 import { startServer } from "./server.js";
+import { findRider } from "./editor.js";
 import { findFocus } from "./shared/search.js";
 import { CONFIG_FILE } from "./unity/ownCode.js";
 
-const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--no-open] [--report]
+const CACHE_DIR = ".codezoom";
+
+const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--cache-dir DIR] [--no-cache] [--no-watch] [--no-open] [--report]
 
 Run from a Unity project root. Indexes own code, then opens the browser
-at TypeName (a Jump), or at the search page when no name is given.
+at TypeName (a Jump), or at the search page when no name is given. What
+each file gave is cached in .codezoom/ (it ignores itself in git), so a
+relaunch re-reads only changed files; while open, changed files are
+re-read and the page offers the new index.
 
 Own code comes from ${CONFIG_FILE} (or --config FILE) when present:
   { "assemblies": ["My.Game", "My.Editor"],
@@ -32,12 +41,15 @@ async function main() {
   const configPath = valueOf("--config");
   const open = !args.includes("--no-open");
   const report = args.includes("--report");
-  const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--config"].includes(args[i - 1]));
+  const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir"].includes(args[i - 1]));
   const query = positional[0];
   const root = process.cwd();
+  const cacheDirArg = valueOf("--cache-dir");
+  const cacheDir = args.includes("--no-cache") ? null : cacheDirArg ? resolve(cacheDirArg) : join(root, CACHE_DIR);
 
   console.log(`codezoom: indexing ${root}`);
-  const index = indexProject(root, configPath);
+  const cache = IndexCache.load(cacheDir);
+  const index = indexProject(root, configPath, cache);
   const { own, timings, screens } = index;
   const s = screens.meta.stats;
   console.log(
@@ -61,6 +73,7 @@ async function main() {
   console.log(
     `  ${s.files} files, ${s.types} types, ${s.libraries} foreign libraries, ${s.edges} edges, ${s.references} References (${s.unresolved} names not resolved)`,
   );
+  if (cacheDir) console.log(`  cache ${cacheDir}: ${index.fromCache} files reused, ${index.changed.length} read`);
   console.log(`  indexed in ${timings.total} ms (${Object.entries(timings).filter(([k]) => k !== "total").map(([k, v]) => `${k} ${v}`).join(", ")})`);
   if (report) {
     const top = [...index.graph.unresolved.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
@@ -68,7 +81,8 @@ async function main() {
     for (const [n, c] of top) console.log(`    ${c}\t${n}`);
   }
 
-  const server = await startServer(screens, port);
+  const editor = findRider();
+  const server = await startServer(screens, port, root, editor);
   const base = `http://127.0.0.1:${server.port}`;
   let url = `${base}/`;
   if (query) {
@@ -81,6 +95,31 @@ async function main() {
   }
   console.log(`  open ${url}   (Ctrl+C to stop)`);
   if (open) spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+  const saved = () => cache.save().catch((e) => console.log(`  could not write the cache: ${e instanceof Error ? e.message : e}`));
+  void saved();
+
+  if (args.includes("--no-watch")) return;
+  let ownFiles = new Set(index.own.files.map((f) => f.path));
+  watchProject(root, (paths) => {
+    const t0 = performance.now();
+    try {
+      const next = indexProject(root, configPath, cache);
+      const nextOwn = new Set(next.own.files.map((f) => f.path));
+      const removed = [...ownFiles].filter((f) => !nextOwn.has(f));
+      ownFiles = nextOwn;
+      const project = paths.filter((p) => !p.endsWith(".cs")); // .csproj files, the config
+      const changed = [...next.changed, ...removed, ...project];
+      if (!changed.length) return; // touched, not changed
+      server.update(next.screens, changed);
+      const st = next.screens.meta.stats;
+      const list = `${changed.slice(0, 3).join(", ")}${changed.length > 3 ? ", …" : ""}`;
+      console.log(`  index updated in ${Math.round(performance.now() - t0)} ms: ${changed.length} changed (${list}); ${st.types} types, ${st.edges} edges`);
+      void saved();
+    } catch (e) {
+      // a .csproj caught mid-write, say: keep serving the last good index
+      console.log(`  index update failed, keeping the last one: ${e instanceof Error ? e.message : e}`);
+    }
+  });
 }
 
 main().catch((e) => {

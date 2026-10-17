@@ -7,8 +7,10 @@
     box: FocusBox;
     files: string[];
     boxEl?: HTMLDivElement;
+    /** Clicking the Focus shows its source. */
+    onOpenSource?: () => void;
   }
-  let { node, box, files, boxEl = $bindable() }: Props = $props();
+  let { node, box, files, boxEl = $bindable(), onOpenSource }: Props = $props();
 
   const CODE = `12px ${FONT_CODE}`;
   const LINE = 18;
@@ -34,7 +36,16 @@
   const where = $derived(box.file >= 0 ? `${files[box.file]}:${box.line}` : "");
 </script>
 
-<div class="focus" bind:this={boxEl} style:width="{width}px" title={lib ? node.full : `${node.full}\n${where}\n${box.assembly}`}>
+<div
+  class="focus"
+  bind:this={boxEl}
+  style:width="{width}px"
+  title={lib ? node.full : `${node.full}\n${where}\n${box.assembly}\nClick for the source`}
+  role="button"
+  tabindex="0"
+  onclick={() => onOpenSource?.()}
+  onkeydown={(e) => e.key === "Enter" && onOpenSource?.()}
+>
   <svg {width} {height} role="img" aria-label="Focus: {node.full}">
     <rect class="frame" class:lib x="0.5" y="0.5" width={width - 1} height={height - 1} rx={lib ? 22 : 3} />
     <text class="label" x={width / 2} y="18">«{node.label}»</text>
@@ -62,6 +73,8 @@
 
 <style>
   .focus {
+    cursor: pointer;
+    outline: none;
     max-height: 100%;
     max-width: 100%;
     overflow-y: auto;

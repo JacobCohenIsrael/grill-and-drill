@@ -1,26 +1,24 @@
 <script lang="ts">
-  import { BOX_H, ROW_VPAD, type Box } from "./layout";
+  import { BOX_H, type Box, type RowLayout } from "./layout";
 
   interface Props {
     title: string;
     hint: string;
     total: number;
-    boxes: Box[];
-    width: number;
+    layout: RowLayout;
     position: "above" | "below";
     hoveredId: string | null;
     filter: string;
     stripEl?: HTMLDivElement;
     onScroll: () => void;
-    onPick: (box: Box) => void;
+    onPick: (box: Box, el: Element) => void;
     onHover: (box: Box | null, el: Element | null) => void;
   }
   let {
     title,
     hint,
     total,
-    boxes,
-    width,
+    layout,
     position,
     hoveredId,
     filter = $bindable(""),
@@ -29,8 +27,6 @@
     onPick,
     onHover,
   }: Props = $props();
-
-  const height = BOX_H + ROW_VPAD * 2;
 
   function onWheel(e: WheelEvent) {
     // a mouse wheel scrolls the strip sideways
@@ -44,7 +40,7 @@
 {#snippet header()}
   <div class="header">
     <span class="title">{title}</span>
-    <span class="count">{filter.trim() ? `${boxes.length} of ${total}` : total}</span>
+    <span class="count">{filter.trim() ? `${layout.boxes.length} of ${total}` : total}</span>
     <span class="hint">{hint}</span>
     <input class="filter" type="search" placeholder="Filter" title="Substrings or word starts: CA, CampAp" bind:value={filter} spellcheck="false" />
   </div>
@@ -53,31 +49,33 @@
 <section class={position}>
   {#if position === "above"}{@render header()}{/if}
   <div class="strip" bind:this={stripEl} onscroll={onScroll} onwheel={onWheel}>
-    {#if boxes.length === 0}
-      <div class="empty" style:height="{height}px">{total === 0 ? "None" : "No match"}</div>
+    {#if layout.boxes.length === 0}
+      <div class="empty" style:height="{layout.height}px">{total === 0 ? "None" : "No match"}</div>
     {:else}
-      <svg {width} {height} role="list">
-        {#each boxes as b (b.n.id)}
+      <svg width={layout.width} height={layout.height} role="list" aria-label={title}>
+        {#each layout.boxes as b (b.n.id)}
           {@const lib = b.node.kind === "library"}
           <g
             class="box"
             class:hot={hoveredId === b.n.id}
             class:previous={b.previous}
             class:lib
-            transform="translate({b.x},{ROW_VPAD})"
+            data-id={b.n.id}
+            data-size={b.size}
+            transform="translate({b.x},{b.y}) scale({b.scale})"
             role="button"
             tabindex="0"
             aria-label="{b.previous ? 'Back to' : 'Drill to'} {b.node.full}"
-            onclick={() => onPick(b)}
-            onkeydown={(e) => e.key === "Enter" && onPick(b)}
+            onclick={(e) => onPick(b, e.currentTarget)}
+            onkeydown={(e) => e.key === "Enter" && onPick(b, e.currentTarget)}
             onmouseenter={(e) => onHover(b, e.currentTarget)}
             onmouseleave={() => onHover(null, null)}
           >
-            <rect width={b.w} height={BOX_H} rx={lib ? BOX_H / 2 : 3} />
-            <text class="label" x={b.w / 2} y={16}>{b.label}</text>
-            <text class="name" class:abstract={b.node.abstract} x={b.w / 2} y={33}>{b.name}</text>
+            <rect width={b.innerW} height={BOX_H} rx={lib ? BOX_H / 2 : 3} vector-effect="non-scaling-stroke" />
+            <text class="label" x={b.innerW / 2} y={16}>{b.label}</text>
+            <text class="name" class:abstract={b.node.abstract} x={b.innerW / 2} y={33}>{b.name}</text>
             {#if b.previous}<text class="mark back" x={lib ? 14 : 5} y={12}>↩</text>{/if}
-            {#if b.n.cycle}<text class="mark cycle" x={b.w - (lib ? 14 : 5)} y={12} text-anchor="end">⟲</text>{/if}
+            {#if b.n.cycle}<text class="mark cycle" x={b.innerW - (lib ? 14 : 5)} y={12} text-anchor="end">⟲</text>{/if}
           </g>
         {/each}
       </svg>
@@ -88,6 +86,8 @@
 
 <style>
   section {
+    /* positioned, so boxes paint over the edge lines that pass behind them */
+    position: relative;
     flex: none;
     min-width: 0;
   }

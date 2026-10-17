@@ -69,19 +69,23 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
         .map((e) => {
           const id = other(e);
           const o = info.get(id)!;
+          const members = new Set(e.refs.map((r) => (r.typeLevel ? "\u0000declaration" : r.member))).size;
           return {
             id,
             edge: e.kind,
             count: e.refs.length,
+            members,
+            weight: Math.round(Math.sqrt(e.refs.length * members) * 10) / 10,
             distance: o.kind === "library" ? FOREIGN_DISTANCE : namespaceDistance(n.namespace, o.namespace),
             cycle: otherRow.has(id),
             refs: e.refs.map((r) => [r.member, fileId(r.file), r.line] as [string, number, number]),
           };
         })
-        .sort((a, b) => a.distance - b.distance || b.count - a.count || compareNames(info.get(a.id)!.name, info.get(b.id)!.name));
+        // the page groups by size first (shared/weight.ts); this order holds within a size
+        .sort((a, b) => a.distance - b.distance || b.weight - a.weight || compareNames(info.get(a.id)!.name, info.get(b.id)!.name));
     const t = graph.types.get(n.id);
     const screen: Screen = {
-      focus: t ? focusBox(t, fileId) : { id: n.id, attributes: [], operations: [], hidden: 0, file: -1, line: 0, assembly: "" },
+      focus: t ? focusBox(t, fileId) : { id: n.id, attributes: [], operations: [], hidden: 0, file: -1, line: 0, parts: [], assembly: "" },
       dependents: row(incoming, (e) => e.from, outIds),
       dependencies: row(outgoing, (e) => e.to, inIds),
     };
@@ -192,7 +196,8 @@ function focusBox(t: OwnType, fileId: (f: string) => number): FocusBox {
     else attributes.push(fm);
   }
   const first = t.parts[0];
-  return { id: t.key, attributes, operations, hidden, file: fileId(first.file), line: first.line, assembly: t.assembly };
+  const parts = t.parts.map((p) => ({ file: fileId(p.file), line: p.line }));
+  return { id: t.key, attributes, operations, hidden, file: fileId(first.file), line: first.line, parts, assembly: t.assembly };
 }
 
 function memberText(m: MemberDecl): string {

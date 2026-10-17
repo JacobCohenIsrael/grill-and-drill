@@ -37,7 +37,10 @@
     {node.full}
     {#if item.cycle}<span class="cycle">⟲ cycle: also in the other row</span>{/if}
   </div>
-  <div class="sub">{item.count} {item.count === 1 ? "Reference" : "References"} in {from.name}</div>
+  <div class="weight">
+    Weight {item.weight}: {item.count} {item.count === 1 ? "Reference" : "References"} in {item.members}
+    {item.members === 1 ? "member" : "members"} of {from.name}
+  </div>
   <ul>
     {#each item.refs as [member, file, line], i (i)}
       <li title="{files[file]}:{line}">
@@ -77,6 +80,11 @@
     font-size: 11px;
     margin-top: 2px;
     overflow-wrap: anywhere;
+  }
+  .weight {
+    margin-top: 6px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
   .cycle {
     color: var(--cycle);

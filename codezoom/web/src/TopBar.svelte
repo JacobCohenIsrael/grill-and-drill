@@ -6,7 +6,7 @@
     meta: Meta;
     nodes: Map<string, NodeInfo>;
     trail: string[];
-    lastMove: { kind: string; ms: number } | null;
+    lastMove: { kind: string; ms: number; motion: string; fps: number | null; longestFrameMs: number | null } | null;
     onJump: (id: string) => void;
     onTrail: (index: number) => void;
   }
@@ -35,7 +35,11 @@
     {/each}
   </nav>
   {#if lastMove}
-    <span class="latency" title="Time from the move until the new screen is laid out, ready to paint">{lastMove.kind} {lastMove.ms} ms</span>
+    <span
+      class="latency"
+      title="Time from the move until the new screen is laid out and drawing starts{lastMove.fps ? `; zoom frame rate (longest frame ${lastMove.longestFrameMs} ms)` : ''}"
+      >{lastMove.kind} {lastMove.ms} ms{lastMove.fps ? ` · ${lastMove.fps} fps` : ""}</span
+    >
   {/if}
   <Search nodes={meta.nodes} {onJump} />
 </header>

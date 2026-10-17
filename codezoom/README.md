@@ -2,9 +2,18 @@
 
 Indexes a Unity C# project and shows, in the browser, a UML diagram centred
 on one type: the **Focus**, with its **Dependents** above and its
-**Dependencies** below. Click a node to **Drill** to it, click the previous
-Focus (marked ↩), press Backspace or use the browser's Back button to go
-**Back**, and type in the search box to **Jump**. The search box and the
+**Dependencies** below. Click a node to **Drill** to it (the view dives into
+the box until it is the new Focus), click the previous Focus (marked ↩),
+press Backspace or use the browser's Back button to go **Back** (the same
+dive in reverse), and type in the search box to **Jump** (a cut). The top
+bar shows how long the last move took to start drawing, and the zoom's
+frame rate. Boxes are sized by Weight (√ of References × members they sit
+in): large, medium or small against the heaviest own-code box in the row,
+large first; hovering a box shows its Weight. The thresholds are constants
+in `src/shared/weight.ts`, the drawn sizes and edge widths in
+`web/src/layout.ts`. Click the Focus box for its source (read-only, one tab per
+partial file); hovering a neighbour marks its References in that file, and
+**Open in Rider** (or a line number) opens the file there. Esc closes it. The search box and the
 filter on each row match substrings or word starts: `CA`, `CampAp` and
 `plica` all find `CampaignApplication`. Terms are defined in
 [../GLOSSARY.md](../GLOSSARY.md); decisions are in [../docs/adr](../docs/adr).
@@ -32,7 +41,14 @@ that matches several nodes, it opens the search page instead. Options:
 `--port N`, `--no-open`, `--config FILE` (use a config kept outside the
 project), `--report` (lists names it could not resolve).
 
-Every launch re-indexes from scratch; nothing is written into the project.
+What each file gave is cached in `.codezoom/` at the project root (it
+holds its own `.gitignore`, so git ignores it without touching yours), so a
+relaunch re-reads only changed files: a large project serves in 0.8 s warm
+against 2.8 s cold. While codezoom is open it watches `Assets/`,
+`Packages/` and the `.csproj` files; on a change it re-indexes and the page
+shows a notice instead of reshuffling the screen you are on. Options:
+`--cache-dir DIR`, `--no-cache`, `--no-watch`. That cache is the only thing
+codezoom writes into the project.
 
 ## Own code
 
