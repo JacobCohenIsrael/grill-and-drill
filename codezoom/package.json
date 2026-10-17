@@ -1,0 +1,35 @@
+{
+  "name": "codezoom",
+  "version": "0.1.0",
+  "description": "Index a Unity C# project and walk its architecture one Focus at a time, in the browser.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "codezoom": "bin/codezoom.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.json",
+    "build:web": "vite build",
+    "check": "tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./tsconfig.web.json"
+  },
+  "dependencies": {
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-c-sharp": "^0.23.5"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/node": "^24.19.2",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.7",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4"
+  }
+}
