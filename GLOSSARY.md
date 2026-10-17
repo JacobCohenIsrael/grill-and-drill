@@ -84,6 +84,11 @@ _Avoid_: Test, tour, script, scenario
 
 ## Around the Focus
 
+**Screen**:
+Everything shown for one Focus: the Focus box, its Dependents and its
+Dependencies.
+_Avoid_: View, neighbourhood, page
+
 **Dependents**:
 The nodes that depend on the Focus.
 _Avoid_: Callers, users, upstream, incoming
