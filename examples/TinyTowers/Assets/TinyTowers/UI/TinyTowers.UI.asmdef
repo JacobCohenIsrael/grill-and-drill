@@ -1,0 +1,1 @@
+{ "name": "TinyTowers.UI", "rootNamespace": "TinyTowers.UI", "references": ["TinyTowers.Core", "TinyTowers.Gameplay", "FancyTween"] }

@@ -1,0 +1,1 @@
+{ "name": "TinyTowers.Editor", "rootNamespace": "TinyTowers.Editor", "references": ["TinyTowers.Core", "TinyTowers.Gameplay"], "includePlatforms": ["Editor"] }

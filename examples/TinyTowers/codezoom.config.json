@@ -1,0 +1,13 @@
+{
+  "assemblies": [
+    "Assembly-CSharp",
+    "TinyTowers.Core",
+    "TinyTowers.Editor",
+    "TinyTowers.Gameplay",
+    "TinyTowers.UI"
+  ],
+  "excluded": [
+    "FancyTween",
+    "TinyTowers.Tests"
+  ]
+}

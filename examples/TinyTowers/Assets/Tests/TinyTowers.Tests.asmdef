@@ -1,0 +1,1 @@
+{ "name": "TinyTowers.Tests", "references": ["TinyTowers.Core", "TinyTowers.Gameplay"], "optionalUnityReferences": ["TestAssemblies"] }
