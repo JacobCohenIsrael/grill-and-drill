@@ -27,6 +27,11 @@ A directed link from one node to another that stands for one or more
 References and carries a single edge kind, the strongest among them.
 _Avoid_: Link, relation, arrow
 
+**Weight**:
+How heavily the using end of an edge relies on the other end, from how many
+References it makes and how many of its own members those References sit in.
+_Avoid_: Count, strength, usage, frequency
+
 ## Edge kinds
 
 Strongest first.
@@ -40,7 +45,8 @@ The edge kind from a type to an interface it implements.
 _Avoid_: Realizes, realization
 
 **Has**:
-The edge kind from a type to the type of one of its fields or properties.
+The edge kind from a type to the type of one of its fields or properties,
+except events.
 _Avoid_: Association, aggregation, composition, owns
 
 **Uses**:
