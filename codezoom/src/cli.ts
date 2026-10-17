@@ -6,8 +6,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { IndexCache } from "./cache.js";
-import { indexProject } from "./indexer.js";
+import { fromForeignList } from "./dotnet/foreignList.js";
+import { indexProject, type IndexOptions } from "./indexer.js";
 import { watchProject } from "./watch.js";
+import { formatWalk, parseWalk, runWalk, type Walk } from "./walk.js";
 import { startServer } from "./server.js";
 import { findRider } from "./editor.js";
 import { findFocus } from "./shared/search.js";
@@ -19,6 +21,10 @@ const CACHE_DIR = ".codezoom";
 
 const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--cache-dir DIR] [--no-cache] [--no-watch] [--no-open] [--report]
        codezoom setup [same options]
+       codezoom walk FILE... [--config FILE] [--cache-dir DIR] [--no-cache]
+
+--foreign-types FILE reads foreign type names from a list (made by
+scripts/extract-foreign-types.mjs) instead of Unity's DLLs: for tests.
 
 Run from a Unity project root. Indexes own code, then opens the browser
 at TypeName (a Jump), or at the search page when no name is given. What
@@ -29,7 +35,11 @@ re-read and the page offers the new index.
 Own code comes from ${CONFIG_FILE} (or --config FILE). Without it the
 browser opens the setup page first, pre-ticked by the default rules
 (assemblies with files under Assets/, minus tests and vendor folders);
-"codezoom setup" or the Setup link in the page reopens it.`;
+"codezoom setup" or the Setup link in the page reopens it.
+
+"codezoom walk" replays golden walks (JSON files of moves and the
+neighbours each screen must or must not show) against this project and
+exits non-zero when a screen differs. See the README for the format.`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -45,17 +55,25 @@ async function main() {
   const configPath = valueOf("--config");
   const open = !args.includes("--no-open");
   const report = args.includes("--report");
-  const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir"].includes(args[i - 1]));
+  const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir", "--foreign-types"].includes(args[i - 1]));
+  const foreignFile = valueOf("--foreign-types");
+  const indexOptions: IndexOptions = foreignFile ? { foreignTypes: fromForeignList(JSON.parse(readFileSync(foreignFile, "utf8"))) } : {};
   const setupCommand = positional[0] === "setup";
-  const query = setupCommand ? undefined : positional[0];
+  const walkCommand = positional[0] === "walk";
+  const query = setupCommand || walkCommand ? undefined : positional[0];
   const root = process.cwd();
   const configFile = configPath ? resolve(configPath) : join(root, CONFIG_FILE);
   const cacheDirArg = valueOf("--cache-dir");
   const cacheDir = args.includes("--no-cache") ? null : cacheDirArg ? resolve(cacheDirArg) : join(root, CACHE_DIR);
 
+  if (walkCommand) {
+    process.exitCode = runWalks(positional.slice(1), root, configPath, cacheDir, indexOptions);
+    return;
+  }
+
   console.log(`codezoom: indexing ${root}`);
   const cache = IndexCache.load(cacheDir);
-  let index = indexProject(root, configPath, cache);
+  let index = indexProject(root, configPath, cache, indexOptions);
   const { own, timings, screens } = index;
   const hasConfig = loadConfig(root, configPath).config !== null;
   if (index.project.source === "asmdef") {
@@ -119,7 +137,7 @@ async function main() {
       const text = `${JSON.stringify(sortedConfig(config), null, 2)}\n`;
       writeFileSync(configFile, text);
       lastWritten = text;
-      index = indexProject(root, configPath, cache);
+      index = indexProject(root, configPath, cache, indexOptions);
       ownFiles = new Set(index.own.files.map((f) => f.path));
       server.update(index.screens, [], "setup");
       void saved();
@@ -144,7 +162,7 @@ async function main() {
     }
   }
   console.log(`  open ${url}   (Ctrl+C to stop)`);
-  if (open) spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+  if (open) openBrowser(url);
   const saved = () => cache.save().catch((e) => console.log(`  could not write the cache: ${e instanceof Error ? e.message : e}`));
   void saved();
 
@@ -157,7 +175,7 @@ async function main() {
         paths = paths.filter((p) => p !== CONFIG_FILE);
         if (!paths.length) return;
       }
-      const next = indexProject(root, configPath, cache);
+      const next = indexProject(root, configPath, cache, indexOptions);
       index = next;
       const nextOwn = new Set(next.own.files.map((f) => f.path));
       const removed = [...ownFiles].filter((f) => !nextOwn.has(f));
@@ -175,6 +193,44 @@ async function main() {
       console.log(`  index update failed, keeping the last one: ${e instanceof Error ? e.message : e}`);
     }
   });
+}
+
+/** The default browser at the address; if there is none to start, the address printed above is enough. */
+function openBrowser(url: string) {
+  const [cmd, args] =
+    process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  const child = spawn(cmd, args as string[], { stdio: "ignore", detached: true });
+  child.on("error", () => console.log("  could not start a browser: open the address above"));
+  child.unref();
+}
+
+/** `codezoom walk`: 0 when every screen is as the walks expect, 1 when one differs, 2 when a walk cannot be read. */
+function runWalks(files: string[], root: string, configPath: string | undefined, cacheDir: string | null, options: IndexOptions): number {
+  if (!files.length) {
+    console.error("codezoom walk: name one or more walk files");
+    return 2;
+  }
+  const cache = IndexCache.load(cacheDir);
+  const index = indexProject(root, configPath, cache, options);
+  void cache.save().catch(() => undefined);
+  const s = index.screens.meta.stats;
+  console.log(`codezoom: ${s.types} types, ${s.edges} edges, ${s.references} References in ${root}`);
+  const nodes = new Map(index.screens.meta.nodes.map((n) => [n.id, n]));
+  let code = 0;
+  for (const file of files) {
+    let walk: Walk;
+    try {
+      walk = parseWalk(readFileSync(file, "utf8"));
+    } catch (e) {
+      console.error(`walk: ${file}\n  cannot read it: ${e instanceof Error ? e.message : e}`);
+      code = 2;
+      continue;
+    }
+    const { text, failed } = formatWalk(walk.name ? `${walk.name} (${file})` : file, runWalk(walk, index.screens), nodes);
+    console.log(text);
+    if (failed && code === 0) code = 1;
+  }
+  return code;
 }
 
 /** The first namespace segment each file declares, read once per run (setup page only). */

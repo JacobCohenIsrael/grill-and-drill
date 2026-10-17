@@ -1,24 +1,47 @@
 {
   "name": "codezoom",
-  "version": "0.1.0",
-  "description": "Index a Unity C# project and walk its architecture one Focus at a time, in the browser.",
+  "version": "1.0.0",
+  "description": "Walk the architecture of a Unity C# project one type at a time: a UML view centred on one Focus, its Dependents above and Dependencies below, in your browser.",
+  "keywords": [
+    "unity",
+    "csharp",
+    "uml",
+    "architecture",
+    "dependency-graph",
+    "code-navigation"
+  ],
+  "homepage": "https://jacobcohenisrael.github.io/grill-and-drill/",
+  "bugs": {
+    "url": "https://github.com/JacobCohenIsrael/grill-and-drill/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JacobCohenIsrael/grill-and-drill.git",
+    "directory": "codezoom"
+  },
   "license": "MIT",
+  "author": "Jacob Cohen",
   "type": "module",
   "bin": {
     "codezoom": "bin/codezoom.js"
   },
   "files": [
     "bin",
-    "dist"
+    "dist/server",
+    "dist/web",
+    "LICENSE",
+    "README.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.23.3"
   },
   "scripts": {
     "build": "npm run build:server && npm run build:web",
-    "build:server": "tsc -p tsconfig.json",
+    "build:server": "rm -rf dist/server && tsc -p tsconfig.json",
     "build:web": "vite build",
-    "check": "tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./tsconfig.web.json"
+    "check": "tsc -p tsconfig.json --noEmit && svelte-check --tsconfig ./tsconfig.web.json",
+    "test": "npm run build:server && node --test test/*.test.mjs",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "tree-sitter": "^0.25.1",

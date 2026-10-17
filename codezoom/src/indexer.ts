@@ -34,7 +34,12 @@ export interface Index {
   fromCache: number;
 }
 
-export function indexProject(root: string, configFile?: string, cache: IndexCache = IndexCache.load(null)): Index {
+export interface IndexOptions {
+  /** Foreign types to use instead of reading DLLs (tests: same result with or without Unity). */
+  foreignTypes?: ForeignType[];
+}
+
+export function indexProject(root: string, configFile?: string, cache: IndexCache = IndexCache.load(null), options: IndexOptions = {}): Index {
   cache.begin();
   const timings: Record<string, number> = {};
   let mark = performance.now();
@@ -106,9 +111,9 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
     const proj = byAssembly.get(assembly);
     return proj && !ownNames.has(assembly) ? libraries.forProject(proj) : libraries.forAssembly(assembly, path);
   };
-  const foreign: ForeignType[] = [];
+  const foreign: ForeignType[] = options.foreignTypes ? [...options.foreignTypes] : [];
   let read = 0;
-  for (const [path, assembly] of dllPaths) {
+  for (const [path, assembly] of options.foreignTypes ? [] : dllPaths) {
     const lib = libraryOf(assembly, path);
     try {
       for (const d of cache.typeDefs(path, statSync(path), () => readTypeDefs(path))) {

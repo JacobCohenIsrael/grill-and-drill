@@ -1,0 +1,48 @@
+{
+  "name": "Jump, and the foreign libraries",
+  "start": "WaveBanner",
+  "expect": {
+    "dependencies": [
+      { "name": "FancyTween", "size": "small" },
+      { "name": "UnityEngine", "size": "small" }
+    ]
+  },
+  "steps": [
+    {
+      "drill": "FancyTween",
+      "expect": {
+        "focus": "FancyTween",
+        "dependents": ["WaveBanner", "GoldLabel"],
+        "absent": { "dependencies": ["UnityEngine"] }
+      }
+    },
+    {
+      "jump": "WSp",
+      "expect": {
+        "focus": "WaveSpawner",
+        "dependents": [{ "name": "GameBootstrap", "edge": "has" }, "WaveDebugWindow"],
+        "dependencies": [
+          { "name": "WaveConfig", "edge": "has" },
+          "EventBus",
+          "EnemyRegistry",
+          { "name": "UnityEngine", "edge": "inherits", "size": "small" }
+        ]
+      }
+    },
+    {
+      "drill": "UnityEngine",
+      "expect": {
+        "focus": "UnityEngine",
+        "dependents": [
+          { "name": "Tower", "edge": "inherits", "size": "large" },
+          { "name": "WaveSpawner", "edge": "inherits", "size": "large" },
+          { "name": "TowerConfig", "edge": "inherits", "size": "small" }
+        ],
+        "absent": { "dependents": ["FancyTween"] }
+      }
+    },
+    { "back": true, "expect": { "focus": "WaveSpawner" } },
+    { "back": true, "expect": { "focus": "FancyTween" } },
+    { "back": true, "expect": { "focus": "WaveBanner" } }
+  ]
+}

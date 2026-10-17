@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "dist/server",
-    "sourceMap": true,
+    "sourceMap": false,
     "verbatimModuleSyntax": true
   },
   "include": ["src/**/*.ts"]

@@ -47,7 +47,7 @@ function wordMatch(name: string, query: string): number {
   return -1;
 }
 
-/** The query starts every word of the name, one piece each: "GHS" covers GameHostService, not GameHostServiceFactory. */
+/** The query starts every word of the name, one piece each: "GHS" covers GameHudService, not GameHudServiceFactory. */
 function coversAllWords(name: string, query: string): boolean {
   const ws = words(name);
   return readings(query).some((ps) => ps.length === ws.length && fromStart(ws, ps));

@@ -1,0 +1,55 @@
+{
+  "name": "Tower: what a tower is made of",
+  "start": "TinyTowers.Towers.Tower",
+  "expect": {
+    "focus": "Tower",
+    "dependents": [
+      "BuildGrid",
+      { "name": "ArrowTower", "edge": "inherits" },
+      { "name": "CannonTower", "edge": "inherits" },
+      { "name": "FrostTower", "edge": "inherits" },
+      { "name": "TowerConfig", "cycle": true },
+      "TowerShop"
+    ],
+    "dependencies": [
+      { "name": "TowerConfig", "edge": "has", "size": "large", "cycle": true },
+      { "name": "ITargetable", "edge": "has", "size": "large" },
+      "FurthestAlong",
+      "ITargetingStrategy",
+      "EnemyRegistry",
+      "GameClock",
+      "Goblin",
+      { "name": "UnityEngine", "edge": "inherits", "size": "small" }
+    ],
+    "absent": { "dependencies": ["WaveSpawner", "Wallet"] }
+  },
+  "steps": [
+    {
+      "drill": "TowerConfig",
+      "expect": {
+        "focus": "TowerConfig",
+        "dependents": [
+          { "name": "Tower", "edge": "has", "size": "large", "cycle": true },
+          { "name": "TowerShop", "edge": "has", "size": "large" },
+          "BuildGrid",
+          "TowerConfigEditor"
+        ],
+        "dependencies": [
+          { "name": "Projectile", "edge": "has" },
+          { "name": "Tower", "cycle": true },
+          { "name": "UnityEngine", "size": "small" }
+        ]
+      }
+    },
+    { "back": true, "expect": { "focus": "Tower" } },
+    {
+      "drill": "ArrowTower",
+      "expect": {
+        "focus": "ArrowTower",
+        "dependencies": [{ "name": "Tower", "edge": "inherits" }],
+        "absent": { "dependents": ["Tower"] }
+      }
+    },
+    { "back": true, "expect": { "focus": "Tower" } }
+  ]
+}

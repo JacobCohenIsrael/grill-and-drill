@@ -1,0 +1,37 @@
+{
+  "name": "Enemies and their registry: a cycle",
+  "start": "Enemy",
+  "expect": {
+    "focus": "Enemy",
+    "dependents": [
+      { "name": "EnemyRegistry", "size": "large", "cycle": true },
+      { "name": "Bat", "edge": "inherits" },
+      { "name": "Goblin", "edge": "inherits" },
+      { "name": "Ogre", "edge": "inherits" },
+      "WaveSpawner"
+    ],
+    "dependencies": [
+      { "name": "EnemyRegistry", "cycle": true },
+      { "name": "Health", "edge": "has", "size": "large" },
+      { "name": "ITargetable", "edge": "implements" },
+      { "name": "IDamageable", "edge": "has" },
+      { "name": "UnityEngine", "edge": "inherits", "size": "small" }
+    ],
+    "absent": { "dependents": ["Tower"], "dependencies": ["Tower"] }
+  },
+  "steps": [
+    {
+      "drill": "EnemyRegistry",
+      "expect": {
+        "focus": "EnemyRegistry",
+        "dependents": [{ "name": "Enemy", "cycle": true }, "CannonTower", "Tower", "WaveSpawner"],
+        "dependencies": [
+          { "name": "Enemy", "edge": "has", "size": "large", "cycle": true },
+          { "name": "ITargetable", "edge": "has", "size": "large" },
+          "Bat"
+        ]
+      }
+    },
+    { "back": true, "expect": { "focus": "Enemy" } }
+  ]
+}
