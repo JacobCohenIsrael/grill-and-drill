@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- the old pricing code stays for reference; it is not compiled -->
+  <ItemGroup>
+    <Compile Remove="Legacy/**" />
+  </ItemGroup>
+
+</Project>

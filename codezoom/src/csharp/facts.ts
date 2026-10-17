@@ -64,6 +64,8 @@ export interface TypeDecl {
   /** Type parameters visible inside, including the outer types'. */
   scopeTypeParams: string[];
   members: MemberDecl[];
+  /** Primary constructor parameters of a class or struct: in scope in the whole body, like members. */
+  captured?: string[];
   scope: Scope;
   file: string;
   line: number;

@@ -220,6 +220,8 @@ class Reader {
       return inner;
     } else if (t in TYPE_DECLARATIONS) {
       this.typeDeclaration(child, ctx);
+    } else if (t === "global_statement" && child.parent?.type === "compilation_unit") {
+      this.topLevelStatement(child, ctx);
     } else if (t === "preproc_if" || t === "preproc_elif" || t === "preproc_else" || t === "declaration_list" || t === "ERROR") {
       let inner = ctx;
       for (let i = 0; i < child.childCount; i++) {
@@ -232,6 +234,32 @@ class Reader {
       this.memberDeclaration(child, ctx);
     }
     return ctx;
+  }
+
+  private program: TypeDecl | null = null;
+  private programLocals = new Set<string>();
+
+  /** Top-level statements: the compiler wraps them in a Program class's Main, so their References are Program's. */
+  topLevelStatement(node: Node, ctx: Ctx) {
+    if (!this.program) {
+      this.program = {
+        key: "Program",
+        name: "Program",
+        arity: 0,
+        namespace: "",
+        outer: null,
+        kind: "class",
+        modifiers: ["partial"],
+        typeParams: [],
+        scopeTypeParams: [],
+        members: [member("method", "Main", null, ["string[]"], "private", ["static"], false, node)],
+        scope: ctx.scope,
+        file: this.facts.path,
+        line: node.startPosition.row + 1,
+      };
+      this.facts.types.push(this.program);
+    }
+    for (const c of node.namedChildren) this.expr(c, { scope: ctx.scope, type: this.program, member: "Main()", methodTypeParams: null, locals: this.programLocals });
   }
 
   namespaceScope(node: Node, parent: Scope): Scope {
@@ -318,9 +346,10 @@ class Reader {
           break;
         case "parameter_list": {
           if (kind === "delegate") break; // read below with the return type
-          // record positional parameters are properties; other primary constructors are not
+          // record positional parameters are properties; a class's primary constructor parameters
+          // are the fields it keeps (the usual way to take services), so both are Has
           const isRecord = kind === "record" || kind === "record struct";
-          const types = this.parameters(c, { ...typeCtx, member: isRecord ? name : `${name}()`, locals: new Set() }, isRecord ? "has" : "uses");
+          const types = this.parameters(c, { ...typeCtx, member: isRecord ? name : `${name}()`, locals: new Set() }, "has");
           if (isRecord) {
             for (const p of c.namedChildren) {
               if (p.type !== "parameter") continue;
@@ -330,6 +359,7 @@ class Reader {
             }
           } else {
             decl.members.push(member("ctor", name, null, types, "public", [], false, c));
+            decl.captured = c.namedChildren.filter((p) => p.type === "parameter").map((p) => p.childForFieldName("name")?.text ?? "").filter(Boolean);
           }
           break;
         }

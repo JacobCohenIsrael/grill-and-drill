@@ -1,0 +1,34 @@
+{
+  "name": "A package is one node; the base library is hidden",
+  "start": "OrderJsonConverter",
+  "expect": {
+    "dependencies": [
+      { "name": "Newtonsoft.Json", "edge": "inherits", "size": "small" },
+      "Order",
+      "Customer",
+      "Money",
+      "OrderLine",
+      "ProductId"
+    ],
+    "absent": { "dependencies": ["Microsoft.Extensions.Logging.Abstractions"] }
+  },
+  "steps": [
+    {
+      "drill": "Newtonsoft.Json",
+      "expect": {
+        "focus": "Newtonsoft.Json",
+        "dependents": [{ "name": "OrderJsonConverter", "edge": "inherits" }, { "name": "JsonOrderRepository", "edge": "has" }]
+      }
+    },
+    {
+      "jump": "Program",
+      "expect": {
+        "focus": "Program",
+        "dependencies": ["OrderService", "JsonOrderRepository", "InMemoryCatalog", "SampleData", "Receipt"],
+        "absent": { "dependencies": ["PricingTests"] }
+      }
+    },
+    { "back": true, "expect": { "focus": "Newtonsoft.Json" } },
+    { "back": true, "expect": { "focus": "OrderJsonConverter" } }
+  ]
+}

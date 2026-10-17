@@ -1,5 +1,7 @@
-// codezoom <TypeName>: index the Unity project in the current folder and
-// open the browser at that Focus. codezoom setup: choose own code.
+// codezoom <TypeName>: index the Unity project or .NET solution in the
+// current folder and open the browser at that Focus. codezoom setup: choose
+// own code.
+// codezoom mcp, search, screen, references: the agent tools (ADR 0005).
 
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -10,36 +12,50 @@ import { fromForeignList } from "./dotnet/foreignList.js";
 import { indexProject, type IndexOptions } from "./indexer.js";
 import { watchProject } from "./watch.js";
 import { formatWalk, parseWalk, runWalk, type Walk } from "./walk.js";
+import { serveMcp } from "./mcp.js";
+import { indexNotes, Query, QueryError, referencesText, screenText, searchText } from "./query.js";
 import { startServer } from "./server.js";
 import { findRider } from "./editor.js";
 import { findFocus } from "./shared/search.js";
 import { defaultVerdict, isSkipped, type Config } from "./shared/ownRules.js";
 import type { SetupData } from "./shared/types.js";
-import { CONFIG_FILE, loadConfig } from "./unity/ownCode.js";
+import { CONFIG_FILE, hintsFor, loadConfig } from "./unity/ownCode.js";
+import { projectKind } from "./unity/project.js";
 
 const CACHE_DIR = ".codezoom";
 
 const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--cache-dir DIR] [--no-cache] [--no-watch] [--no-open] [--report]
        codezoom setup [same options]
        codezoom walk FILE... [--config FILE] [--cache-dir DIR] [--no-cache]
+       codezoom mcp [--config FILE] [--cache-dir DIR] [--no-cache] [--no-watch]
+       codezoom search QUERY [--limit N] [--json]
+       codezoom screen NODE [--filter TEXT] [--limit N] [--offset N] [--json]
+       codezoom references FROM TO [--limit N] [--offset N] [--json]
 
 --foreign-types FILE reads foreign type names from a list (made by
-scripts/extract-foreign-types.mjs) instead of Unity's DLLs: for tests.
+scripts/extract-foreign-types.mjs) instead of Unity's DLLs or a .NET
+restore: for tests.
 
-Run from a Unity project root. Indexes own code, then opens the browser
-at TypeName (a Jump), or at the search page when no name is given. What
+Run from a Unity project root or a .NET solution folder. Indexes own code,
+then opens the browser at TypeName (a Jump), or at the search page when no
+name is given. What
 each file gave is cached in .codezoom/ (it ignores itself in git), so a
 relaunch re-reads only changed files; while open, changed files are
 re-read and the page offers the new index.
 
 Own code comes from ${CONFIG_FILE} (or --config FILE). Without it the
-browser opens the setup page first, pre-ticked by the default rules
-(assemblies with files under Assets/, minus tests and vendor folders);
-"codezoom setup" or the Setup link in the page reopens it.
+browser opens the setup page first, pre-ticked by the default rules (Unity:
+assemblies with files under Assets/, minus tests and vendor folders; .NET:
+the solution's projects, minus test projects); "codezoom setup" or the
+Setup link in the page reopens it.
 
 "codezoom walk" replays golden walks (JSON files of moves and the
 neighbours each screen must or must not show) against this project and
-exits non-zero when a screen differs. See the README for the format.`;
+exits non-zero when a screen differs. See the README for the format.
+
+"codezoom mcp" serves the agent tools search, screen and references over
+MCP's stdio transport; "codezoom search|screen|references" answer the same
+questions once, as text or, with --json, as the tools' JSON.`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -55,11 +71,14 @@ async function main() {
   const configPath = valueOf("--config");
   const open = !args.includes("--no-open");
   const report = args.includes("--report");
-  const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir", "--foreign-types"].includes(args[i - 1]));
+  const positional = args.filter(
+    (a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir", "--foreign-types", "--filter", "--limit", "--offset"].includes(args[i - 1]),
+  );
   const foreignFile = valueOf("--foreign-types");
   const indexOptions: IndexOptions = foreignFile ? { foreignTypes: fromForeignList(JSON.parse(readFileSync(foreignFile, "utf8"))) } : {};
   const setupCommand = positional[0] === "setup";
   const walkCommand = positional[0] === "walk";
+  const queryCommand = ["search", "screen", "references"].includes(positional[0]) ? positional[0] : undefined;
   const query = setupCommand || walkCommand ? undefined : positional[0];
   const root = process.cwd();
   const configFile = configPath ? resolve(configPath) : join(root, CONFIG_FILE);
@@ -68,6 +87,21 @@ async function main() {
 
   if (walkCommand) {
     process.exitCode = runWalks(positional.slice(1), root, configPath, cacheDir, indexOptions);
+    return;
+  }
+  if (positional[0] === "mcp") {
+    await runMcp(root, configPath, cacheDir, indexOptions, !args.includes("--no-watch"));
+    return;
+  }
+  if (queryCommand) {
+    const number = (flag: string) => {
+      const v = valueOf(flag);
+      if (v === undefined) return undefined;
+      if (!/^\d+$/.test(v)) throw new Error(`${flag} needs a whole number`);
+      return Number(v);
+    };
+    const page = { filter: valueOf("--filter"), limit: number("--limit"), offset: number("--offset") };
+    process.exitCode = runQuery(queryCommand, positional.slice(1), page, args.includes("--json"), root, configPath, cacheDir, indexOptions);
     return;
   }
 
@@ -79,6 +113,11 @@ async function main() {
   if (index.project.source === "asmdef") {
     console.log("  no .csproj files: assemblies from .asmdef files and Unity folder rules; open the project once in Unity or Rider for exact results");
   }
+  if (index.project.kind === "dotnet") {
+    const from = index.project.solutions?.length ? index.project.solutions.join(", ") : "every .csproj under the folder (no .sln)";
+    console.log(`  .NET: ${index.projects.length} projects from ${from}; base library from ${index.dotnet?.baseLibrary}`);
+  }
+  for (const n of index.notes) console.log(`  ${n}`);
   const s = screens.meta.stats;
   console.log(
     `  own code: ${own.assemblies.map((a) => a.assembly).join(", ")} (${own.configPath ?? "defaults; add " + CONFIG_FILE + " to change"})`,
@@ -128,8 +167,9 @@ async function main() {
           const files = p.compile.filter((f) => f.endsWith(".cs") && !isSkipped(f));
           const counts = new Map<string, number>();
           for (const f of files) counts.set(namespaceRoots.get(f) ?? "(global)", (counts.get(namespaceRoots.get(f) ?? "(global)") ?? 0) + 1);
-          const d = defaultVerdict(p.assembly, p.compile);
-          return { name: p.assembly, files, namespaces: [...counts].sort((a, b) => b[1] - a[1]), defaultOwn: d.own, defaultReason: d.reason };
+          const hints = hintsFor(p, index.project.kind);
+          const d = defaultVerdict(p.assembly, p.compile, hints);
+          return { name: p.assembly, files, namespaces: [...counts].sort((a, b) => b[1] - a[1]), defaultOwn: d.own, defaultReason: d.reason, hints };
         }),
       };
     },
@@ -141,7 +181,8 @@ async function main() {
       ownFiles = new Set(index.own.files.map((f) => f.path));
       server.update(index.screens, [], "setup");
       void saved();
-      console.log(`  saved ${configFile}: ${index.own.assemblies.length} own assemblies, ${index.screens.meta.stats.types} types`);
+      const unit = index.project.kind === "dotnet" ? "projects" : "assemblies";
+      console.log(`  saved ${configFile}: ${index.own.assemblies.length} own ${unit}, ${index.screens.meta.stats.types} types`);
       return { types: index.screens.meta.stats.types };
     },
   };
@@ -192,7 +233,7 @@ async function main() {
       // a .csproj caught mid-write, say: keep serving the last good index
       console.log(`  index update failed, keeping the last one: ${e instanceof Error ? e.message : e}`);
     }
-  });
+  }, index.project.kind);
 }
 
 /** The default browser at the address; if there is none to start, the address printed above is enough. */
@@ -231,6 +272,97 @@ function runWalks(files: string[], root: string, configPath: string | undefined,
     if (failed && code === 0) code = 1;
   }
   return code;
+}
+
+/** `codezoom mcp`: index once the client has said hello, then answer from the latest index until stdin closes. */
+async function runMcp(root: string, configPath: string | undefined, cacheDir: string | null, options: IndexOptions, watch: boolean) {
+  const log = (line: string): void => void process.stderr.write(`${line}\n`);
+  const cache = IndexCache.load(cacheDir);
+  let saving: Promise<void> = Promise.resolve();
+  const build = (): Query => {
+    const t0 = performance.now();
+    const index = indexProject(root, configPath, cache, options);
+    saving = cache.save().then(
+      () => undefined,
+      (e) => log(`codezoom mcp: could not write the cache: ${e instanceof Error ? e.message : e}`),
+    );
+    const s = index.screens.meta.stats;
+    log(`codezoom mcp: ${s.types} types, ${s.edges} edges in ${root} (${Math.round(performance.now() - t0)} ms)`);
+    return new Query(index.screens, indexNotes(index));
+  };
+  let current: Promise<Query> | null = null;
+  const query = () =>
+    (current ??= new Promise<Query>((resolve, reject) =>
+      // let the answer that is on its way out leave first: indexing holds the thread
+      setImmediate(() => {
+        try {
+          resolve(build());
+        } catch (e) {
+          const why = e instanceof Error ? e.message : String(e);
+          log(`codezoom mcp: ${why}`);
+          reject(new QueryError(why));
+        }
+      }),
+    ));
+  log(`codezoom mcp: serving ${root} on stdio`);
+  if (watch) {
+    watchProject(
+      root,
+      () => {
+        if (!current) return;
+        try {
+          current = Promise.resolve(build());
+        } catch (e) {
+          log(`codezoom mcp: index update failed, keeping the last one: ${e instanceof Error ? e.message : e}`);
+        }
+      },
+      projectKind(root),
+    );
+  }
+  const version = (JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string }).version;
+  await serveMcp(process.stdin, process.stdout, { version, query, onInitialized: () => void query().catch(() => undefined), log });
+  await saving;
+  process.exit(0);
+}
+
+/** `codezoom search|screen|references`: one answer, as text or JSON. 0 answered, 1 no answer, 2 usage. */
+function runQuery(
+  command: string,
+  words: string[],
+  page: { filter?: string; limit?: number; offset?: number },
+  json: boolean,
+  root: string,
+  configPath: string | undefined,
+  cacheDir: string | null,
+  options: IndexOptions,
+): number {
+  const needs = command === "references" ? 2 : 1;
+  if (words.length !== needs) {
+    console.error(`codezoom ${command}: ${command === "references" ? "name the node that depends and the node it depends on" : command === "search" ? "give one query" : "name one node"}`);
+    return 2;
+  }
+  const cache = IndexCache.load(cacheDir);
+  const index = indexProject(root, configPath, cache, options);
+  void cache.save().catch(() => undefined);
+  const q = new Query(index.screens, indexNotes(index));
+  try {
+    if (command === "search") {
+      const a = q.search(words[0], page.limit);
+      console.log(json ? JSON.stringify(a, null, 2) : searchText(a));
+    } else if (command === "screen") {
+      const a = q.screen(words[0], page);
+      console.log(json ? JSON.stringify(a, null, 2) : screenText(a));
+    } else {
+      const a = q.references(words[0], words[1], page);
+      console.log(json ? JSON.stringify(a, null, 2) : referencesText(a));
+    }
+    return 0;
+  } catch (e) {
+    if (!(e instanceof QueryError)) throw e;
+    if (json) console.log(JSON.stringify({ error: e.message, notes: q.notes }, null, 2));
+    else console.error(`codezoom ${command}: ${e.message}`);
+    return 1;
+  }
 }
 
 /** The first namespace segment each file declares, read once per run (setup page only). */

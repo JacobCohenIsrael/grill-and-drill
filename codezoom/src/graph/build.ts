@@ -2,7 +2,7 @@
 // nodes, and one edge per ordered pair carrying its strongest kind.
 
 import type { FileFacts, RawRef, TypeDecl } from "../csharp/facts.js";
-import { Resolver, type ForeignType, type OwnType, type Target } from "../csharp/resolver.js";
+import { Resolver, type FallbackRoot, type ForeignType, type OwnType, type Target } from "../csharp/resolver.js";
 import type { LibraryInfo } from "../unity/libraries.js";
 import type { EdgeKind } from "../shared/types.js";
 
@@ -39,10 +39,17 @@ export interface Graph {
 
 const STRENGTH: Record<EdgeKind, number> = { inherits: 4, implements: 3, has: 2, uses: 1 };
 
-export function buildGraph(files: FileFacts[], foreign: ForeignType[]): Graph {
+export interface GraphOptions {
+  /** Namespaces every file imports without saying so (a .NET project's implicit and <Using> usings). */
+  globalUsings?: string[];
+  /** Packages known only by namespace (not restored). */
+  fallback?: FallbackRoot[];
+}
+
+export function buildGraph(files: FileFacts[], foreign: ForeignType[], options: GraphOptions = {}): Graph {
   const types = mergeTypes(files);
-  const globalUsings = files.flatMap((f) => f.globalUsings);
-  const resolver = new Resolver(types.values(), foreign, globalUsings);
+  const globalUsings = [...(options.globalUsings ?? []), ...files.flatMap((f) => f.globalUsings)];
+  const resolver = new Resolver(types.values(), foreign, globalUsings, options.fallback);
   const ownOf = (d: TypeDecl) => types.get(d.key)!;
 
   // base classes first: nested-type lookup walks them
@@ -163,6 +170,7 @@ function mergeTypes(files: FileFacts[]): Map<string, OwnType> {
       t.members.push(m);
       t.memberNames.add(m.name);
     }
+    for (const n of d.captured ?? []) t.memberNames.add(n);
   }
   for (const { d } of decls) {
     if (!d.outer) continue;

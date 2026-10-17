@@ -1,0 +1,24 @@
+{
+  "name": "Money: the value everything is priced in",
+  "start": "Money",
+  "expect": {
+    "dependents": [
+      { "name": "CouponDiscount", "edge": "has", "size": "large" },
+      { "name": "OrderLine", "edge": "has", "size": "large" },
+      { "name": "Product", "edge": "has" },
+      { "name": "Order", "edge": "has" },
+      "BulkDiscount",
+      "IPricingRule"
+    ]
+  },
+  "steps": [
+    {
+      "drill": "CouponDiscount",
+      "expect": {
+        "focus": "CouponDiscount",
+        "dependencies": [{ "name": "IPricingRule", "edge": "implements" }, { "name": "Money", "edge": "has" }, { "name": "Order", "edge": "uses" }]
+      }
+    },
+    { "back": true, "expect": { "focus": "Money" } }
+  ]
+}

@@ -34,6 +34,20 @@ export interface ForeignType {
 
 export type Target = { own: OwnType; foreign?: undefined } | { foreign: ForeignType; own?: undefined };
 
+/**
+ * A foreign library known only by the namespace its types live in (a .NET
+ * package that has not been restored): a name nothing else resolves, found
+ * under that namespace, is taken to be one of its types.
+ */
+export interface FallbackRoot {
+  root: string;
+  /** The package id itself, not a namespace guessed from it (…Abstractions -> …). */
+  exact: boolean;
+  lib: LibraryInfo;
+  /** The own assemblies that can see the package (its project and those that reference it); all when absent. */
+  assemblies?: string[];
+}
+
 type Found = { type: Target } | { ns: string } | "typeParam" | null;
 
 export class Resolver {
@@ -42,11 +56,51 @@ export class Resolver {
   private levelCache = new WeakMap<Scope, { ns: string; lex: Scope | null }[]>();
   private usingCache = new WeakMap<Scope, string[]>();
   private globalUsings: string[] = [];
+  private fallback: FallbackRoot[];
+  private guessed = new Map<string, Target>();
 
-  constructor(own: Iterable<OwnType>, foreign: Iterable<ForeignType>, globalUsings: string[]) {
+  constructor(own: Iterable<OwnType>, foreign: Iterable<ForeignType>, globalUsings: string[], fallback: FallbackRoot[] = []) {
     for (const t of own) if (!t.outer) this.add(t.namespace, t.name, { own: t });
     for (const f of foreign) this.add(f.namespace, f.name, { foreign: f });
-    this.globalUsings = globalUsings.filter((u) => this.namespaces.has(u));
+    // the package's own id first, then the longest root
+    this.fallback = [...fallback].sort((a, b) => Number(b.exact) - Number(a.exact) || b.root.length - a.root.length);
+    for (const f of this.fallback) for (let n = f.root; n; n = n.includes(".") ? n.slice(0, n.lastIndexOf(".")) : "") this.namespaces.add(n);
+    this.globalUsings = [...new Set(globalUsings)].filter((u) => this.isNamespace(u));
+  }
+
+  private isNamespace(ns: string): boolean {
+    return this.namespaces.has(ns) || this.fallbackFor(ns) !== null;
+  }
+
+  /** The fallback library a namespace belongs to, as one assembly sees it (any assembly when none is named). */
+  private fallbackFor(ns: string, assembly?: string): LibraryInfo | null {
+    if (!this.fallback.length) return null;
+    const lower = ns.toLowerCase();
+    for (const f of this.fallback) {
+      if (assembly !== undefined && f.assemblies && !f.assemblies.includes(assembly)) continue;
+      const root = f.root.toLowerCase();
+      if (lower === root || lower.startsWith(root + ".")) return f.lib;
+    }
+    return null;
+  }
+
+  /**
+   * A type of a fallback library, made up for a name under its namespace; the
+   * same object each time. Type names are PascalCase: `log.LogInformation` is
+   * a variable, not a guess.
+   */
+  private guess(ns: string, s: NameSeg, assembly: string): Target | null {
+    if (!/^[A-Z]/.test(s.name)) return null;
+    const lib = this.fallbackFor(ns, assembly);
+    if (!lib) return null;
+    const key = `${ns}\u0000${s.name}\u0000${s.arity}`;
+    let t = this.guessed.get(key);
+    if (!t) {
+      // by C# convention IFoo is an interface
+      t = { foreign: { full: `${ns}.${s.name}`, name: s.name, arity: s.arity, namespace: ns, lib, isInterface: /^I[A-Z]/.test(s.name) } };
+      this.guessed.set(key, t);
+    }
+    return t;
   }
 
   private add(ns: string, name: string, target: Target) {
@@ -98,8 +152,12 @@ export class Resolver {
         if (t) cur = { type: t };
         else {
           const ns: string = cur.ns ? `${cur.ns}.${s.name}` : s.name;
-          if (!this.namespaces.has(ns)) return null;
-          cur = { ns };
+          if (this.namespaces.has(ns)) cur = { ns };
+          else {
+            const g = this.guess(cur.ns, s, from.assembly);
+            if (!g) return null;
+            cur = { type: g };
+          }
         }
       } else if (cur.type.own) {
         const n = nestedIn(cur.type.own, s, !noInheritedNested);
@@ -127,9 +185,18 @@ export class Resolver {
       const n = nestedIn(t, s, !noInheritedNested);
       if (n) return { type: { own: n } };
     }
+    // a guess under a package's namespace counts only when nothing real matches, and only one package fits
+    let guess: Target | null | undefined;
+    const consider = (ns: string) => {
+      const g = this.guess(ns, s, from.assembly);
+      if (!g || guess === null) return;
+      if (guess === undefined) guess = g;
+      else if (guess.foreign!.lib.key !== g.foreign!.lib.key) guess = null;
+    };
     for (const level of this.levels(ref.scope)) {
       const t = this.lookupNs(level.ns, s);
       if (t) return { type: t };
+      consider(level.ns);
       const ns = level.ns ? `${level.ns}.${s.name}` : s.name;
       if (this.namespaces.has(ns)) return { ns };
       const lex = level.lex;
@@ -137,7 +204,7 @@ export class Resolver {
       if (lex) {
         const alias = lex.aliases.get(s.name);
         if (alias) {
-          const a = this.resolveAlias(alias, lex);
+          const a = this.resolveAlias(alias, lex, from.assembly);
           if (a) return a;
         }
       }
@@ -147,11 +214,12 @@ export class Resolver {
         const t = this.lookupNs(u, s);
         if (t?.own) return { type: t };
         if (t && !foreign) foreign = t;
+        if (!t) consider(u);
       }
       if (foreign) return { type: foreign };
       if (lex) {
         for (const st of lex.staticUsings) {
-          const host = this.resolveAlias(st, lex);
+          const host = this.resolveAlias(st, lex, from.assembly);
           if (host && "type" in host && host.type.own) {
             const n = nestedIn(host.type.own, s, true);
             if (n) return { type: { own: n } };
@@ -159,10 +227,10 @@ export class Resolver {
         }
       }
     }
-    return null;
+    return guess ? { type: guess } : null;
   }
 
-  private resolveAlias(name: NameSyntax, lex: Scope): { type: Target } | { ns: string } | null {
+  private resolveAlias(name: NameSyntax, lex: Scope, assembly: string): { type: Target } | { ns: string } | null {
     // alias targets are written relative to the enclosing namespace, ignoring other usings
     const candidates = [""];
     for (const l of this.levels(lex)) if (l.ns) candidates.unshift(l.ns);
@@ -175,7 +243,8 @@ export class Resolver {
           if (t) cur = { type: t };
           else {
             const ns: string = cur.ns ? `${cur.ns}.${s.name}` : s.name;
-            cur = this.namespaces.has(ns) ? { ns } : null;
+            const g: Target | null = this.namespaces.has(ns) ? null : this.guess(cur.ns, s, assembly);
+            cur = this.namespaces.has(ns) ? { ns } : g ? { type: g } : null;
           }
         } else if (cur.type.own) {
           const n = nestedIn(cur.type.own, s, true);
@@ -197,6 +266,7 @@ export class Resolver {
       else {
         const rel = levels.map((l) => (l ? `${l}.${u}` : u)).find((n) => this.namespaces.has(n));
         if (rel) cached.push(rel);
+        else if (this.fallbackFor(u)) cached.push(u);
       }
     }
     this.usingCache.set(scope, cached);

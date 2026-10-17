@@ -18,6 +18,9 @@ export interface NodeInfo {
   abstract: boolean;
   dependents: number;
   dependencies: number;
+  /** Own type: where it is declared (its first part), index into Meta.files. Absent for a library. */
+  file?: number;
+  line?: number;
 }
 
 /** One Reference behind an edge: [member, index into Meta.files, line]. */
@@ -90,6 +93,10 @@ export interface Meta {
   version?: number;
   /** Assemblies the config has not reviewed yet; the top bar offers setup for them. */
   newAssemblies?: string[];
+  /** Said on every Screen: how the index is less than exact (packages not restored). */
+  notes?: string[];
+  /** Unity project or plain .NET folder: the page says assemblies or projects. */
+  kind?: import("./ownRules.js").ProjectKind;
 }
 
 /** One assembly as the setup page shows it. */
@@ -102,16 +109,30 @@ export interface SetupAssembly {
   /** What the default rules (round 3) say. */
   defaultOwn: boolean;
   defaultReason: string | null;
+  /** What those rules need beyond name and files (a .NET test project, say). */
+  hints?: import("./ownRules.js").VerdictHints;
+}
+
+/** What kind of folder this is and where its assemblies come from. */
+export interface ProjectSummary {
+  kind: import("./ownRules.js").ProjectKind;
+  name: string;
+  /** Unity: from ProjectSettings/ProjectVersion.txt. */
+  unityVersion: string | null;
+  /** Unity: the installed editor read for UnityEngine types, when it is not the project's own. */
+  standIn: string | null;
+  unityInstalled: boolean;
+  /**
+   * "csproj": Unity's .csproj files, exact. "asmdef": a fresh Unity clone, from .asmdef files and folder rules.
+   * "sln": a .NET solution's projects. "folder": every .NET project under the folder (no solution).
+   */
+  source: "csproj" | "asmdef" | "sln" | "folder";
+  /** .NET: the solution files read. */
+  solutions?: string[];
 }
 
 export interface SetupData {
-  project: {
-    name: string;
-    unityVersion: string | null;
-    unityInstalled: boolean;
-    standIn: string | null;
-    source: "csproj" | "asmdef";
-  };
+  project: ProjectSummary;
   /** Where Save writes, as shown to the user. */
   configPath: string;
   config: import("./ownRules.js").Config | null;

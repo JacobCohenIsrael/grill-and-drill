@@ -1,0 +1,40 @@
+{
+  "name": "Placing an order: the service and what it is given",
+  "start": "TinyShop.Orders.OrderService",
+  "expect": {
+    "focus": "OrderService",
+    "dependents": [{ "name": "Program", "edge": "uses" }],
+    "dependencies": [
+      { "name": "Order", "edge": "uses", "size": "large" },
+      { "name": "IOrderRepository", "edge": "has" },
+      { "name": "IProductCatalog", "edge": "has" },
+      { "name": "IPricingRule", "edge": "has" },
+      { "name": "UnknownProductException", "edge": "uses" },
+      { "name": "Microsoft.Extensions.Logging.Abstractions", "edge": "has", "size": "small" }
+    ],
+    "absent": { "dependents": ["PricingTests"], "dependencies": ["JsonOrderRepository", "OldPricing"] }
+  },
+  "steps": [
+    {
+      "drill": "IOrderRepository",
+      "expect": {
+        "focus": "IOrderRepository",
+        "dependents": [{ "name": "JsonOrderRepository", "edge": "implements" }, { "name": "OrderService", "edge": "has" }, "Program"],
+        "dependencies": ["Order", "OrderId", "CustomerId"]
+      }
+    },
+    {
+      "drill": "JsonOrderRepository",
+      "expect": {
+        "focus": "JsonOrderRepository",
+        "dependencies": [
+          { "name": "IOrderRepository", "edge": "implements" },
+          { "name": "Newtonsoft.Json", "edge": "has", "size": "small" },
+          "OrderJsonConverter"
+        ]
+      }
+    },
+    { "back": true, "expect": { "focus": "IOrderRepository" } },
+    { "back": true, "expect": { "focus": "OrderService" } }
+  ]
+}

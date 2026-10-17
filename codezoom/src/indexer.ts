@@ -1,12 +1,12 @@
-// Full index of a Unity project: own code, foreign libraries, graph, screens.
-// The first slice re-indexes on every launch (no cache, no watching).
+// Full index of a Unity project or a plain .NET folder: own code, foreign
+// libraries, graph, screens. What each file gave is cached between runs.
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { readFile } from "./csharp/reader.js";
 import type { FileFacts } from "./csharp/facts.js";
-import type { ForeignType } from "./csharp/resolver.js";
+import type { FallbackRoot, ForeignType } from "./csharp/resolver.js";
 import { readTypeDefs } from "./dotnet/metadata.js";
 import { IndexCache } from "./cache.js";
 import { buildGraph, type Graph } from "./graph/build.js";
@@ -14,8 +14,9 @@ import { buildScreens, type Screens } from "./graph/screens.js";
 import type { Csproj } from "./unity/csproj.js";
 import { loadProjects, type ProjectFacts } from "./unity/project.js";
 import { InstalledEditors } from "./unity/editors.js";
-import { LibraryMap } from "./unity/libraries.js";
+import { LibraryMap, type LibraryInfo } from "./unity/libraries.js";
 import { chooseOwnCode, loadConfig, vendorLibrary, type OwnCode } from "./unity/ownCode.js";
+import { dotnetForeign, restoreNote } from "./dotnet/foreign.js";
 
 export interface Index {
   root: string;
@@ -32,11 +33,17 @@ export interface Index {
   /** Source files read afresh in this run; the rest came from the cache. */
   changed: string[];
   fromCache: number;
+  /** How this index is less than exact, said on every Screen and in every agent answer. */
+  notes: string[];
+  /** .NET: own projects not restored, and where the base library's names came from. */
+  dotnet?: { unrestored: string[]; baseLibrary: string };
 }
 
 export interface IndexOptions {
-  /** Foreign types to use instead of reading DLLs (tests: same result with or without Unity). */
+  /** Foreign types to use instead of reading DLLs (tests: same result with or without Unity or a .NET SDK). */
   foreignTypes?: ForeignType[];
+  /** .NET SDK folders to look in for targeting packs; by default DOTNET_ROOT, PATH and the usual places. */
+  dotnetRoots?: string[];
 }
 
 export function indexProject(root: string, configFile?: string, cache: IndexCache = IndexCache.load(null), options: IndexOptions = {}): Index {
@@ -52,15 +59,129 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
 
   const { projects, facts: project } = loadProjects(root);
   if (projects.length === 0) {
-    throw new Error(`No C# found in ${root}: no .csproj files, and no scripts under Assets/. Run codezoom from a Unity project root.`);
+    throw new Error(
+      `No C# found in ${root}: not a Unity project (no ProjectSettings/ or scripts under Assets/) and no .sln or .csproj files. Run codezoom from a Unity project root or a .NET solution folder.`,
+    );
   }
   const { config, path: configPath } = loadConfig(root, configFile);
-  const own = chooseOwnCode(projects, config, configPath);
+  const own = chooseOwnCode(projects, config, configPath, project.kind);
   lap("projects");
 
-  const libraries = new LibraryMap(root);
-  lap("packages");
+  const side = project.kind === "dotnet" ? dotnetSide(projects, own, cache, options) : unitySide(root, projects, own, cache, options);
+  lap("foreign");
+  const { foreign } = side;
 
+
+  // vendor source inside own assemblies, and referenced assemblies with no
+  // DLL built: read their declarations, their types are foreign
+  const vendorSources = [
+    ...own.vendorFiles.map((f) => ({ ...f, lib: vendorLibrary(f.path) })),
+    ...side.fromSource.flatMap(({ project: p, lib }) => p.compile.filter((f) => f.endsWith(".cs")).map((path) => ({ path, assembly: p.assembly, lib }))),
+  ];
+  const definesOf = new Map(projects.map((p) => [p.assembly, new Set(p.defines)]));
+  const contextOf = new Map(
+    projects.map((p) => [p.assembly, `${p.assembly}:${createHash("sha1").update(p.defines.join(";")).digest("hex").slice(0, 16)}`]),
+  );
+  const readSource = (path: string, assembly: string): FileFacts | null => {
+    let stamp;
+    try {
+      stamp = statSync(join(root, path));
+    } catch {
+      return null;
+    }
+    return cache.fileFacts(path, stamp, contextOf.get(assembly) ?? assembly, () => {
+      let text: string;
+      try {
+        text = readFileSync(join(root, path), "utf8");
+      } catch {
+        return null;
+      }
+      return readFile(path, assembly, text.replace(/^\uFEFF/, ""), definesOf.get(assembly));
+    });
+  };
+  for (const f of vendorSources) {
+    const facts = readSource(f.path, f.assembly);
+    if (!facts) continue;
+    for (const t of facts.types) {
+      if (t.outer) continue;
+      foreign.push({ full: t.key, name: t.name, arity: t.arity, namespace: t.namespace, lib: f.lib, isInterface: t.kind === "interface" });
+    }
+  }
+  lap("vendor");
+
+  const files: FileFacts[] = [];
+  for (const f of own.files) {
+    const facts = readSource(f.path, f.assembly);
+    if (facts) files.push(facts);
+  }
+  lap("parse");
+
+  const graph = buildGraph(files, foreign, { globalUsings: side.globalUsings, fallback: side.fallback });
+  lap("resolve");
+
+  const edges = [...graph.out.values()].reduce((n, m) => n + m.size, 0);
+  const stats = {
+    files: files.length,
+    types: graph.types.size,
+    libraries: graph.libraries.size,
+    edges,
+    references: graph.references,
+    unresolved: [...graph.unresolved.values()].reduce((a, b) => a + b, 0),
+    timings,
+  };
+  const screens = buildScreens(graph, basename(root), stats);
+  screens.meta.newAssemblies = own.newAssemblies;
+  screens.meta.kind = project.kind;
+  const notes = side.notes;
+  if (notes.length) screens.meta.notes = notes;
+  lap("screens");
+  cache.end();
+  timings.total = Math.round(performance.now() - start);
+  return {
+    root,
+    project,
+    projects,
+    own,
+    graph,
+    screens,
+    timings,
+    dlls: side.dlls,
+    foreign,
+    changed: [...cache.changed],
+    fromCache: cache.hits,
+    notes,
+    ...(side.dotnet ? { dotnet: side.dotnet } : {}),
+  };
+}
+
+/** What the foreign side of a project gives the rest of the index. */
+interface ForeignSide {
+  foreign: ForeignType[];
+  /** Referenced, not own, no DLL: read their declarations as foreign. */
+  fromSource: { project: Csproj; lib: LibraryInfo }[];
+  globalUsings: string[];
+  fallback: FallbackRoot[];
+  dlls: Index["dlls"];
+  notes: string[];
+  dotnet?: Index["dotnet"];
+}
+
+function dotnetSide(projects: Csproj[], own: OwnCode, cache: IndexCache, options: IndexOptions): ForeignSide {
+  const d = dotnetForeign(projects, own, cache, options.foreignTypes, options.dotnetRoots);
+  const note = restoreNote(d.unrestored);
+  return {
+    foreign: d.foreign,
+    fromSource: d.fromSource,
+    globalUsings: d.globalUsings,
+    fallback: d.fallback,
+    dlls: { read: d.dlls.read, missing: d.dlls.missing, substituted: 0, extraModules: 0, editors: new InstalledEditors() },
+    notes: note ? [note] : [],
+    dotnet: { unrestored: d.unrestored, baseLibrary: d.baseLibrary },
+  };
+}
+
+function unitySide(root: string, projects: Csproj[], own: OwnCode, cache: IndexCache, options: IndexOptions): ForeignSide {
+  const libraries = new LibraryMap(root);
   // foreign types: every DLL the own assemblies reference, plus assemblies
   // they reference by project that are not own code
   const ownNames = new Set(own.assemblies.map((p) => p.assembly));
@@ -124,82 +245,13 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
       missing.add(path);
     }
   }
-  lap("foreign");
-
-  // vendor source inside own assemblies, and referenced assemblies with no
-  // DLL built: read their declarations, their types are foreign
-  const vendorSources = [
-    ...own.vendorFiles.map((f) => ({ ...f, lib: vendorLibrary(f.path) })),
-    ...[...fromSource].flatMap((p) => p.compile.filter((f) => f.endsWith(".cs")).map((path) => ({ path, assembly: p.assembly, lib: libraries.forProject(p) }))),
-  ];
-  const definesOf = new Map(projects.map((p) => [p.assembly, new Set(p.defines)]));
-  const contextOf = new Map(
-    projects.map((p) => [p.assembly, `${p.assembly}:${createHash("sha1").update(p.defines.join(";")).digest("hex").slice(0, 16)}`]),
-  );
-  const readSource = (path: string, assembly: string): FileFacts | null => {
-    let stamp;
-    try {
-      stamp = statSync(join(root, path));
-    } catch {
-      return null;
-    }
-    return cache.fileFacts(path, stamp, contextOf.get(assembly) ?? assembly, () => {
-      let text: string;
-      try {
-        text = readFileSync(join(root, path), "utf8");
-      } catch {
-        return null;
-      }
-      return readFile(path, assembly, text.replace(/^\uFEFF/, ""), definesOf.get(assembly));
-    });
-  };
-  for (const f of vendorSources) {
-    const facts = readSource(f.path, f.assembly);
-    if (!facts) continue;
-    for (const t of facts.types) {
-      if (t.outer) continue;
-      foreign.push({ full: t.key, name: t.name, arity: t.arity, namespace: t.namespace, lib: f.lib, isInterface: t.kind === "interface" });
-    }
-  }
-  lap("vendor");
-
-  const files: FileFacts[] = [];
-  for (const f of own.files) {
-    const facts = readSource(f.path, f.assembly);
-    if (facts) files.push(facts);
-  }
-  lap("parse");
-
-  const graph = buildGraph(files, foreign);
-  lap("resolve");
-
-  const edges = [...graph.out.values()].reduce((n, m) => n + m.size, 0);
-  const stats = {
-    files: files.length,
-    types: graph.types.size,
-    libraries: graph.libraries.size,
-    edges,
-    references: graph.references,
-    unresolved: [...graph.unresolved.values()].reduce((a, b) => a + b, 0),
-    timings,
-  };
-  const screens = buildScreens(graph, basename(root), stats);
-  screens.meta.newAssemblies = own.newAssemblies;
-  lap("screens");
-  cache.end();
-  timings.total = Math.round(performance.now() - start);
   return {
-    root,
-    project,
-    projects,
-    own,
-    graph,
-    screens,
-    timings,
-    dlls: { read, missing: [...missing], substituted, extraModules, editors },
     foreign,
-    changed: [...cache.changed],
-    fromCache: cache.hits,
+    fromSource: [...fromSource].map((p) => ({ project: p, lib: libraries.forProject(p) })),
+    globalUsings: [],
+    fallback: [],
+    dlls: { read, missing: [...missing], substituted, extraModules, editors },
+    notes: [],
   };
 }
 

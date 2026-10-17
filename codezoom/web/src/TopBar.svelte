@@ -14,6 +14,7 @@
   }
   let { meta, nodes, trail, lastMove, onJump, onTrail, onSetup }: Props = $props();
   const newCount = $derived(meta.newAssemblies?.length ?? 0);
+  const unit = (n: number) => (meta.kind === "dotnet" ? (n === 1 ? "project" : "projects") : n === 1 ? "assembly" : "assemblies");
 
   let crumbs: HTMLElement | undefined = $state();
   $effect(() => {
@@ -44,12 +45,13 @@
       >{lastMove.kind} {lastMove.ms} ms{lastMove.fps ? ` · ${lastMove.fps} fps` : ""}</span
     >
   {/if}
+  {#each meta.notes ?? [] as note (note)}
+    <span class="index-note" role="note" title={note.replace(/`/g, "")}>{note.replace(/`/g, "")}</span>
+  {/each}
   {#if newCount}
-    <button class="setup new" onclick={() => onSetup(true)} title={meta.newAssemblies?.join(", ")}
-      >{newCount} new {newCount === 1 ? "assembly" : "assemblies"}: review</button
-    >
+    <button class="setup new" onclick={() => onSetup(true)} title={meta.newAssemblies?.join(", ")}>{newCount} new {unit(newCount)}: review</button>
   {/if}
-  <button class="setup" onclick={() => onSetup(false)} title="Choose which assemblies are your code">Setup</button>
+  <button class="setup" onclick={() => onSetup(false)} title="Choose which {unit(2)} are your code">Setup</button>
   <Search nodes={meta.nodes} {onJump} />
 </header>
 
@@ -117,6 +119,21 @@
   }
   .setup.new {
     background: var(--accent-soft);
+  }
+  .index-note {
+    max-width: 440px;
+    font-size: 11px;
+    line-height: 1.3;
+    color: var(--ink);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    border-radius: 5px;
+    padding: 3px 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .latency {
     color: var(--faint);

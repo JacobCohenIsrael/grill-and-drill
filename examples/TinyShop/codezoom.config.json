@@ -1,0 +1,10 @@
+{
+  "assemblies": [
+    "TinyShop.App",
+    "TinyShop.Core",
+    "TinyShop.Storage"
+  ],
+  "excluded": [
+    "TinyShop.Tests"
+  ]
+}

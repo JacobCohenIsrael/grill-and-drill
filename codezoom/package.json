@@ -1,10 +1,12 @@
 {
   "name": "codezoom",
-  "version": "1.0.1",
-  "description": "Walk the architecture of a Unity C# project one type at a time: a UML view centred on one Focus, its Dependents above and Dependencies below, in your browser.",
+  "version": "1.1.0",
+  "description": "Walk the architecture of a Unity or .NET C# project one type at a time: a UML view centred on one Focus, its Dependents above and Dependencies below, in your browser or through MCP tools for coding agents.",
   "keywords": [
     "unity",
     "csharp",
+    "dotnet",
+    "mcp",
     "uml",
     "architecture",
     "dependency-graph",
@@ -28,6 +30,7 @@
   "files": [
     "bin",
     "dist/server",
+    "data",
     "dist/web",
     "LICENSE",
     "README.md"
@@ -48,6 +51,7 @@
     "tree-sitter-c-sharp": "^0.23.5"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/node": "^24.19.2",
     "svelte": "^5.57.2",

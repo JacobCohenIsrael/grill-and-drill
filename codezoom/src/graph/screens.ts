@@ -41,6 +41,8 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
       abstract: t.modifiers.has("abstract"),
       dependents: graph.in.get(t.key)?.size ?? 0,
       dependencies: graph.out.get(t.key)?.size ?? 0,
+      file: fileId(t.parts[0].file),
+      line: t.parts[0].line,
     });
   }
   for (const l of graph.libraries.values()) {

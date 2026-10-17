@@ -14,6 +14,12 @@ installed editor's DLLs. A .NET project uses the package's root namespace,
 and the Screen says that a `dotnet restore` would make it exact. The .NET
 base library stays hidden.
 
+A shared framework the SDK provides, such as ASP.NET Core, is also one
+foreign library, and it is shown, not hidden like the base library. A project
+that the solution's projects reference but the solution does not list is a
+foreign library named after that project, unless the user ticks it as own
+code in the wizard.
+
 ## Considered Options
 
 - **One node per root namespace.** Needs no DLLs, but splits and merges

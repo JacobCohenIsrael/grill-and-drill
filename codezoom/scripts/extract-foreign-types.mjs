@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Writes the foreign type names a project's code mentions, read from the
-// installed Unity editor's DLLs, to a small JSON list the tests use instead
-// of Unity. Run after `npm run build:server`:
+// installed Unity editor's DLLs (or a restored .NET solution's packages and
+// the SDK's targeting pack), to a small JSON list the tests use instead of
+// Unity or the SDK. Run after `npm run build:server`:
 //
 //   node scripts/extract-foreign-types.mjs ../examples/TinyTowers test/fixtures/tinytowers-foreign-types.json
+//   node scripts/extract-foreign-types.mjs <restored copy of examples/TinyShop> test/fixtures/tinyshop-foreign-types.json
 //
 // Only types whose simple name appears in the project's source are kept (and
 // attributes written without their "Attribute" suffix), so names resolve the
@@ -28,11 +30,19 @@ for (const p of full.projects) {
     for (const w of readFileSync(join(root, f), "utf8").match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) words.add(w);
   }
 }
-// types read from source (vendor folders, assemblies without a DLL) come back from source anyway
-const fromDlls = full.foreign.filter((t) => !t.lib.key.startsWith("Assets/") && !t.lib.key.startsWith("Packages/"));
+if (full.dotnet?.unrestored.length) {
+  console.error(`not restored: ${full.dotnet.unrestored.join(", ")}; run dotnet restore first`);
+  process.exit(1);
+}
+// types read from source (vendor folders, assemblies without a DLL, projects outside own code) come back from source anyway
+const projectNames = new Set(full.projects.map((p) => p.assembly));
+const fromDlls = full.foreign.filter((t) => !t.lib.key.startsWith("Assets/") && !t.lib.key.startsWith("Packages/") && !projectNames.has(t.lib.key));
 const kept = fromDlls.filter((t) => words.has(t.name) || (t.name.endsWith("Attribute") && words.has(t.name.slice(0, -"Attribute".length))));
-const editor = full.project.unityVersion ?? "unknown";
-const list = toForeignList(kept, `Foreign type names ${root} mentions, read from Unity ${editor}'s DLLs by scripts/extract-foreign-types.mjs. Tests use this list instead of Unity.`);
+const name = full.project.name;
+const list =
+  full.project.kind === "dotnet"
+    ? toForeignList(kept, `Foreign type names ${name} mentions, read from its restored packages and the .NET ${full.dotnet.baseLibrary} by scripts/extract-foreign-types.mjs. Tests use this list instead of a restore and an SDK.`)
+    : toForeignList(kept, `Foreign type names ${root} mentions, read from Unity ${full.project.unityVersion ?? "unknown"}'s DLLs by scripts/extract-foreign-types.mjs. Tests use this list instead of Unity.`);
 
 // the list must give the same index as the DLLs
 const small = indexProject(resolve(root), undefined, undefined, { foreignTypes: fromForeignList(list) });

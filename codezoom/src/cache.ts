@@ -10,7 +10,7 @@ import type { FileFacts } from "./csharp/facts.js";
 import type { ForeignTypeDef } from "./dotnet/metadata.js";
 
 /** Bump when the reader or the facts change shape: old caches are then ignored. */
-const SCHEMA = 1;
+const SCHEMA = 2; // 2: top-level statements, primary constructors as Has
 const FILE = "index-cache.bin";
 
 interface Stamp {

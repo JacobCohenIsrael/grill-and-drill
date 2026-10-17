@@ -37,11 +37,11 @@
         includeFolders = d.config?.includeFolders ?? [];
         // pre-ticks: what the config lists, else what the default rules would index
         // (an assembly wholly in vendor folders gives no own code, so it starts unticked)
-        const start = new FolderRules({ excludeFolders, includeFolders });
+        const start = new FolderRules({ excludeFolders, includeFolders }, d.project.kind);
         own = new Set(
           d.assemblies
             .filter((a) => {
-              const v = verdict(a.name, a.files, d.config);
+              const v = verdict(a.name, a.files, d.config, a.hints);
               const listed = d.config?.assemblies?.includes(a.name) ?? false;
               return v.own && (listed || a.files.some((f) => start.isOwnFile(f)));
             })
@@ -52,10 +52,14 @@
     );
   });
 
-  const rules = $derived(new FolderRules({ excludeFolders, includeFolders }));
+  const rules = $derived(new FolderRules({ excludeFolders, includeFolders }, data?.project.kind));
+  const dotnet = $derived(data?.project.kind === "dotnet");
+  /** Unity has assemblies; a .NET solution has projects. */
+  const unit = (n: number) => (dotnet ? (n === 1 ? "project" : "projects") : n === 1 ? "assembly" : "assemblies");
   const ownFiles = (a: SetupAssembly) => a.files.filter((f) => rules.isOwnFile(f)).length;
-  const isNew = (a: SetupAssembly) => !!data && verdict(a.name, a.files, data.config).isNew;
+  const isNew = (a: SetupAssembly) => !!data && verdict(a.name, a.files, data.config, a.hints).isNew;
   const fmt = (n: number) => n.toLocaleString("en");
+  const OUTSIDE = "Outside the solution";
 
   /** Assemblies grouped by their top folder under Assets/ or Packages/, biggest group first. */
   const groups = $derived.by(() => {
@@ -64,7 +68,8 @@
     for (const a of data.assemblies) {
       if (!a.files.length) continue;
       if (!showAll && !isNew(a)) continue;
-      const top = topFolder(a.files);
+      // projects the solution leaves out but its projects reference: foreign until ticked, so apart
+      const top = a.hints?.outsideSolution ? OUTSIDE : topFolder(a.files);
       if (!byTop.has(top)) byTop.set(top, []);
       byTop.get(top)!.push(a);
     }
@@ -74,7 +79,7 @@
         assemblies: list.sort((a, b) => b.files.length - a.files.length),
         files: list.reduce((n, a) => n + a.files.length, 0),
       }))
-      .sort((a, b) => b.files - a.files);
+      .sort((a, b) => Number(a.folder === OUTSIDE) - Number(b.folder === OUTSIDE) || b.files - a.files);
   });
 
   const totals = $derived.by(() => {
@@ -87,7 +92,8 @@
     const counts = new Map<string, number>();
     for (const f of files) {
       const parts = f.split("/");
-      const top = parts.length > 2 ? `${parts[0]}/${parts[1]}` : parts[0];
+      // Unity: Assets/<folder>; .NET: the folder the projects sit in (src/, tests/)
+      const top = dotnet ? (parts.length > 1 ? parts[0] : "(root)") : parts.length > 2 ? `${parts[0]}/${parts[1]}` : parts[0];
       counts.set(top, (counts.get(top) ?? 0) + 1);
     }
     return [...counts].sort((a, b) => b[1] - a[1])[0][0];
@@ -158,7 +164,7 @@
     const under = (f: string) => f === node.path || f.startsWith(node.path + "/");
     const ex = excludeFolders.filter((f) => !under(f));
     const inc = includeFolders.filter((f) => !under(f));
-    const without = new FolderRules({ excludeFolders: ex, includeFolders: inc });
+    const without = new FolderRules({ excludeFolders: ex, includeFolders: inc }, data?.project.kind);
     if (!node.files.every((f) => without.isOwnFile(f) === on)) (on ? inc : ex).push(node.path);
     excludeFolders = ex;
     includeFolders = inc;
@@ -183,7 +189,11 @@
   }
 
   const tags = (a: SetupAssembly) =>
-    [isNew(a) ? "new" : null, a.defaultReason === "test assembly" ? "tests" : null, a.defaultReason === "outside Assets/" ? "outside Assets/" : null].filter(
+    [
+      isNew(a) ? "new" : null,
+      a.defaultReason === "test assembly" || a.defaultReason === "test project" ? "tests" : null,
+      a.defaultReason === "outside Assets/" || a.defaultReason === "outside the solution" ? a.defaultReason : null,
+    ].filter(
       (t): t is string => !!t,
     );
 </script>
@@ -225,13 +235,15 @@
     <header>
       <h1>Set up codezoom for {data.project.name}</h1>
       <p class="facts">
-        {#if data.project.unityVersion}
+        {#if dotnet}
+          .NET · {data.project.solutions?.length ? data.project.solutions.join(", ") : "no .sln: every .csproj under the folder"}
+        {:else if data.project.unityVersion}
           Unity {data.project.unityVersion}{#if !data.project.unityInstalled}
             (not installed{data.project.standIn ? `: reading Unity ${data.project.standIn}'s DLLs instead` : ""}){/if}
         {:else}
           Unity version unknown (no ProjectSettings/ProjectVersion.txt)
         {/if}
-        · {data.assemblies.filter((a) => a.files.length).length} assemblies with C#
+        · {data.assemblies.filter((a) => a.files.length).length} {unit(2)} with C#
         · saves to <code>{data.configPath}</code>
       </p>
       {#if data.project.source === "asmdef"}
@@ -240,13 +252,20 @@
           in Unity or Rider for exact results.
         </p>
       {/if}
-      <p class="help">
-        Tick the assemblies that are your code. Pre-ticks follow the default rules: assemblies under Assets/, without tests. Vendor
-        folders (Plugins, ThirdParty, …) inside a ticked assembly stay out; open an assembly to change its folders.
-      </p>
+      {#if dotnet}
+        <p class="help">
+          Tick the projects that are your code. Pre-ticks follow the default rules: every project in the solution, without test
+          projects. Open a project to leave some of its folders out.
+        </p>
+      {:else}
+        <p class="help">
+          Tick the assemblies that are your code. Pre-ticks follow the default rules: assemblies under Assets/, without tests. Vendor
+          folders (Plugins, ThirdParty, …) inside a ticked assembly stay out; open an assembly to change its folders.
+        </p>
+      {/if}
       {#if newCount}
         <p class="new">
-          {newCount} new {newCount === 1 ? "assembly" : "assemblies"} since the last setup.
+          {newCount} new {unit(newCount)} since the last setup.
           <button onclick={() => (showAll = !showAll)}>{showAll ? "Show only new" : "Show all"}</button>
         </p>
       {/if}
@@ -263,8 +282,14 @@
             onchange={() => setAssemblies(g.assemblies, ticked < g.assemblies.length)}
           />
           <strong>{g.folder}</strong>
-          <span class="count">{g.assemblies.length} {g.assemblies.length === 1 ? "assembly" : "assemblies"} · {fmt(g.files)} files</span>
+          <span class="count">{g.assemblies.length} {unit(g.assemblies.length)} · {fmt(g.files)} files</span>
         </label>
+        {#if g.folder === OUTSIDE}
+          <p class="ghint">
+            The solution's projects reference these, but the solution does not list them. They are read as foreign libraries unless
+            you tick them as your code.
+          </p>
+        {/if}
         <ul>
           {#each g.assemblies as a (a.name)}
             {@const chosen = own.has(a.name)}
@@ -302,7 +327,7 @@
     {/each}
 
     <footer>
-      <span><strong>{totals.assemblies}</strong> own assemblies · <strong>{fmt(totals.files)}</strong> own files</span>
+      <span><strong>{totals.assemblies}</strong> own {unit(2)} · <strong>{fmt(totals.files)}</strong> own files</span>
       {#if saving}<span class="status">{saving}</span>{/if}
       <button class="save" disabled={saving === "Saving and indexing…"} onclick={save}>Save and index</button>
     </footer>
@@ -353,6 +378,13 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     background: var(--panel);
+  }
+  .ghint {
+    margin: 0;
+    padding: 8px 12px;
+    color: var(--muted);
+    font-size: 12px;
+    border-bottom: 1px solid var(--line);
   }
   .ghead {
     display: flex;

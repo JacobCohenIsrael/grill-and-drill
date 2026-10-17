@@ -1,7 +1,20 @@
 // Which code is own code: the round-3 rules and codezoom.config.json, shared
-// by the indexer and the setup page so both count files the same way.
+// by the indexer and the setup page so both count files the same way. A
+// plain .NET folder (ADR 0006) has simpler defaults: every project in the
+// solution but the test projects.
 
 export const CONFIG_FILE = "codezoom.config.json";
+
+export type ProjectKind = "unity" | "dotnet";
+
+/** What the default rules need to know about an assembly beyond its name and files. */
+export interface VerdictHints {
+  kind?: ProjectKind;
+  /** .NET: IsTestProject, or a test framework package. */
+  isTest?: boolean;
+  /** .NET: referenced by a project of the solution, not listed in it: a foreign library until ticked. */
+  outsideSolution?: boolean;
+}
 
 export interface Config {
   /** Assemblies that are own code. */
@@ -50,9 +63,12 @@ export class FolderRules {
   private exclude: string[];
   private include: string[];
 
-  constructor(config: Config) {
+  private kind: ProjectKind;
+
+  constructor(config: Config, kind: ProjectKind = "unity") {
     this.exclude = (config.excludeFolders ?? []).map(folderPrefix);
     this.include = (config.includeFolders ?? []).map(folderPrefix);
+    this.kind = kind;
   }
 
   /** A file in a chosen assembly is own code unless a folder says otherwise; the most specific folder wins. */
@@ -61,7 +77,8 @@ export class FolderRules {
     const ex = longest(this.exclude);
     const inc = longest(this.include);
     if (ex >= 0 || inc >= 0) return inc > ex;
-    return !isVendorPath(path);
+    // Unity projects carry vendors' code in Plugins/ and the like; a .NET project's files are its own
+    return this.kind === "dotnet" || !isVendorPath(path);
   }
 }
 
@@ -74,8 +91,13 @@ export interface Verdict {
 }
 
 /** The default rules (round 3) for an assembly no config decides. */
-export function defaultVerdict(name: string, files: string[]): Omit<Verdict, "isNew"> {
+export function defaultVerdict(name: string, files: string[], hints: VerdictHints = {}): Omit<Verdict, "isNew"> {
   if (!files.some((f) => f.endsWith(".cs"))) return { own: false, reason: "no source files" };
+  if (hints.kind === "dotnet") {
+    if (hints.isTest) return { own: false, reason: "test project" };
+    if (hints.outsideSolution) return { own: false, reason: "outside the solution" };
+    return { own: true, reason: null };
+  }
   if (isTestAssembly(name)) return { own: false, reason: "test assembly" };
   if (!files.some((f) => f.startsWith("Assets/"))) return { own: false, reason: "outside Assets/" };
   return { own: true, reason: null };
@@ -85,10 +107,10 @@ export function defaultVerdict(name: string, files: string[]): Omit<Verdict, "is
  * Whether an assembly is own code under a config. A config without
  * `excluded` (written by hand before the wizard) lists everything that is own.
  */
-export function verdict(name: string, files: string[], config: Config | null): Verdict {
-  if (!config?.assemblies) return { ...defaultVerdict(name, files), isNew: false };
+export function verdict(name: string, files: string[], config: Config | null, hints: VerdictHints = {}): Verdict {
+  if (!config?.assemblies) return { ...defaultVerdict(name, files, hints), isNew: false };
   if (config.assemblies.includes(name)) return { own: true, reason: null, isNew: false };
   if (!config.excluded) return { own: false, reason: "not listed in config", isNew: false };
   if (config.excluded.includes(name)) return { own: false, reason: "left out in setup", isNew: false };
-  return { ...defaultVerdict(name, files), isNew: files.some((f) => f.endsWith(".cs")) };
+  return { ...defaultVerdict(name, files, hints), isNew: files.some((f) => f.endsWith(".cs")) };
 }

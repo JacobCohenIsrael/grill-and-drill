@@ -16,6 +16,8 @@ export interface Csproj {
   projectReferences: string[]; // assembly names
   /** Preprocessor symbols Unity compiles this assembly with. */
   defines: string[];
+  /** A plain .NET project's own facts (ADR 0006). */
+  dotnet?: import("../dotnet/load.js").DotnetInfo;
 }
 
 const unescapeXml = (s: string) =>
