@@ -1,19 +1,24 @@
 // codezoom <TypeName>: index the Unity project in the current folder and
-// open the browser at that Focus.
+// open the browser at that Focus. codezoom setup: choose own code.
 
 import { spawn } from "node:child_process";
-import { join, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { IndexCache } from "./cache.js";
 import { indexProject } from "./indexer.js";
 import { watchProject } from "./watch.js";
 import { startServer } from "./server.js";
 import { findRider } from "./editor.js";
 import { findFocus } from "./shared/search.js";
-import { CONFIG_FILE } from "./unity/ownCode.js";
+import { defaultVerdict, isSkipped, type Config } from "./shared/ownRules.js";
+import type { SetupData } from "./shared/types.js";
+import { CONFIG_FILE, loadConfig } from "./unity/ownCode.js";
 
 const CACHE_DIR = ".codezoom";
 
 const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--cache-dir DIR] [--no-cache] [--no-watch] [--no-open] [--report]
+       codezoom setup [same options]
 
 Run from a Unity project root. Indexes own code, then opens the browser
 at TypeName (a Jump), or at the search page when no name is given. What
@@ -21,11 +26,10 @@ each file gave is cached in .codezoom/ (it ignores itself in git), so a
 relaunch re-reads only changed files; while open, changed files are
 re-read and the page offers the new index.
 
-Own code comes from ${CONFIG_FILE} (or --config FILE) when present:
-  { "assemblies": ["My.Game", "My.Editor"],
-    "excludeFolders": ["Assets/Plugins"], "includeFolders": [] }
-Without it: every assembly with files under Assets/, minus test
-assemblies and vendor folders.`;
+Own code comes from ${CONFIG_FILE} (or --config FILE). Without it the
+browser opens the setup page first, pre-ticked by the default rules
+(assemblies with files under Assets/, minus tests and vendor folders);
+"codezoom setup" or the Setup link in the page reopens it.`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -42,15 +46,21 @@ async function main() {
   const open = !args.includes("--no-open");
   const report = args.includes("--report");
   const positional = args.filter((a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir"].includes(args[i - 1]));
-  const query = positional[0];
+  const setupCommand = positional[0] === "setup";
+  const query = setupCommand ? undefined : positional[0];
   const root = process.cwd();
+  const configFile = configPath ? resolve(configPath) : join(root, CONFIG_FILE);
   const cacheDirArg = valueOf("--cache-dir");
   const cacheDir = args.includes("--no-cache") ? null : cacheDirArg ? resolve(cacheDirArg) : join(root, CACHE_DIR);
 
   console.log(`codezoom: indexing ${root}`);
   const cache = IndexCache.load(cacheDir);
-  const index = indexProject(root, configPath, cache);
+  let index = indexProject(root, configPath, cache);
   const { own, timings, screens } = index;
+  const hasConfig = loadConfig(root, configPath).config !== null;
+  if (index.project.source === "asmdef") {
+    console.log("  no .csproj files: assemblies from .asmdef files and Unity folder rules; open the project once in Unity or Rider for exact results");
+  }
   const s = screens.meta.stats;
   console.log(
     `  own code: ${own.assemblies.map((a) => a.assembly).join(", ")} (${own.configPath ?? "defaults; add " + CONFIG_FILE + " to change"})`,
@@ -74,6 +84,8 @@ async function main() {
     `  ${s.files} files, ${s.types} types, ${s.libraries} foreign libraries, ${s.edges} edges, ${s.references} References (${s.unresolved} names not resolved)`,
   );
   if (cacheDir) console.log(`  cache ${cacheDir}: ${index.fromCache} files reused, ${index.changed.length} read`);
+  if (!hasConfig) console.log(`  no ${CONFIG_FILE} yet: the setup page opens first`);
+  if (own.newAssemblies.length) console.log(`  ${own.newAssemblies.length} new assemblies not in the config yet: review them in setup`);
   console.log(`  indexed in ${timings.total} ms (${Object.entries(timings).filter(([k]) => k !== "total").map(([k, v]) => `${k} ${v}`).join(", ")})`);
   if (report) {
     const top = [...index.graph.unresolved.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
@@ -81,11 +93,49 @@ async function main() {
     for (const [n, c] of top) console.log(`    ${c}\t${n}`);
   }
 
+  // the setup page: what it shows, and what Save does
+  let ownFiles = new Set(index.own.files.map((f) => f.path));
+  let lastWritten: string | null = null;
+  const namespaceRoots = new Map<string, string>(); // file -> first namespace segment
+  const setup = {
+    describe: async (): Promise<SetupData> => {
+      const all = index.projects.flatMap((p) => p.compile.filter((f) => f.endsWith(".cs") && !isSkipped(f)));
+      await readNamespaceRoots(root, all, namespaceRoots);
+      const shown = relative(root, configFile);
+      return {
+        project: index.project,
+        configPath: shown.startsWith("..") ? configFile : shown,
+        config: loadConfig(root, configPath).config,
+        assemblies: index.projects.map((p) => {
+          const files = p.compile.filter((f) => f.endsWith(".cs") && !isSkipped(f));
+          const counts = new Map<string, number>();
+          for (const f of files) counts.set(namespaceRoots.get(f) ?? "(global)", (counts.get(namespaceRoots.get(f) ?? "(global)") ?? 0) + 1);
+          const d = defaultVerdict(p.assembly, p.compile);
+          return { name: p.assembly, files, namespaces: [...counts].sort((a, b) => b[1] - a[1]), defaultOwn: d.own, defaultReason: d.reason };
+        }),
+      };
+    },
+    save: async (config: Config) => {
+      const text = `${JSON.stringify(sortedConfig(config), null, 2)}\n`;
+      writeFileSync(configFile, text);
+      lastWritten = text;
+      index = indexProject(root, configPath, cache);
+      ownFiles = new Set(index.own.files.map((f) => f.path));
+      server.update(index.screens, [], "setup");
+      void saved();
+      console.log(`  saved ${configFile}: ${index.own.assemblies.length} own assemblies, ${index.screens.meta.stats.types} types`);
+      return { types: index.screens.meta.stats.types };
+    },
+  };
+
   const editor = findRider();
-  const server = await startServer(screens, port, root, editor);
+  const server = await startServer(screens, port, root, editor, setup);
   const base = `http://127.0.0.1:${server.port}`;
   let url = `${base}/`;
-  if (query) {
+  if (setupCommand || !hasConfig) {
+    // after Save the page goes on to the Type named on the command line
+    url = `${base}/setup${query ? `?then=${encodeURIComponent(query)}` : ""}`;
+  } else if (query) {
     const found = findFocus(screens.meta.nodes, query);
     if (found.length === 1) url = `${base}/n/${encodeURIComponent(found[0].id)}`;
     else {
@@ -99,18 +149,23 @@ async function main() {
   void saved();
 
   if (args.includes("--no-watch")) return;
-  let ownFiles = new Set(index.own.files.map((f) => f.path));
   watchProject(root, (paths) => {
     const t0 = performance.now();
     try {
+      // the config Save just wrote is already indexed
+      if (lastWritten !== null && paths.includes(CONFIG_FILE) && readText(configFile) === lastWritten) {
+        paths = paths.filter((p) => p !== CONFIG_FILE);
+        if (!paths.length) return;
+      }
       const next = indexProject(root, configPath, cache);
+      index = next;
       const nextOwn = new Set(next.own.files.map((f) => f.path));
       const removed = [...ownFiles].filter((f) => !nextOwn.has(f));
       ownFiles = nextOwn;
       const project = paths.filter((p) => !p.endsWith(".cs")); // .csproj files, the config
       const changed = [...next.changed, ...removed, ...project];
       if (!changed.length) return; // touched, not changed
-      server.update(next.screens, changed);
+      server.update(next.screens, changed, "files");
       const st = next.screens.meta.stats;
       const list = `${changed.slice(0, 3).join(", ")}${changed.length > 3 ? ", …" : ""}`;
       console.log(`  index updated in ${Math.round(performance.now() - t0)} ms: ${changed.length} changed (${list}); ${st.types} types, ${st.edges} edges`);
@@ -120,6 +175,38 @@ async function main() {
       console.log(`  index update failed, keeping the last one: ${e instanceof Error ? e.message : e}`);
     }
   });
+}
+
+/** The first namespace segment each file declares, read once per run (setup page only). */
+async function readNamespaceRoots(root: string, files: string[], into: Map<string, string>) {
+  const todo = files.filter((f) => !into.has(f));
+  for (let i = 0; i < todo.length; i += 200) {
+    await Promise.all(
+      todo.slice(i, i + 200).map(async (f) => {
+        const text = await readFile(join(root, f), "utf8").catch(() => "");
+        into.set(f, /^\s*namespace\s+@?([A-Za-z_][A-Za-z0-9_]*)/m.exec(text)?.[1] ?? "(global)");
+      }),
+    );
+  }
+}
+
+/** Lists sorted, empty folder lists left out: a config that diffs well. */
+function sortedConfig(c: Config): Config {
+  const sorted = (l?: string[]) => [...(l ?? [])].sort((a, b) => a.localeCompare(b));
+  return {
+    assemblies: sorted(c.assemblies),
+    excluded: sorted(c.excluded),
+    ...(c.excludeFolders?.length ? { excludeFolders: sorted(c.excludeFolders) } : {}),
+    ...(c.includeFolders?.length ? { includeFolders: sorted(c.includeFolders) } : {}),
+  };
+}
+
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 main().catch((e) => {

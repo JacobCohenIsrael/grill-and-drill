@@ -1,7 +1,8 @@
 // Talks to the local server. Screens are cached and preloaded so a move
 // never waits for the network (ADR 0004).
 
-import type { Meta, Screen } from "../../src/shared/types";
+import type { Meta, Screen, SetupData } from "../../src/shared/types";
+import type { Config } from "../../src/shared/ownRules";
 import { highlightLines } from "./highlight";
 
 const cache = new Map<string, Screen>();
@@ -46,7 +47,7 @@ export function clearCaches() {
 }
 
 /** Calls back each time the server has rebuilt the index (files changed). */
-export function onIndexUpdate(callback: (event: { version: number; changed: string[] }) => void): () => void {
+export function onIndexUpdate(callback: (event: { version: number; changed: string[]; reason: "files" | "setup" }) => void): () => void {
   const events = new EventSource("/api/events");
   events.addEventListener("index", (e) => callback(JSON.parse((e as MessageEvent).data)));
   return () => events.close();
@@ -78,4 +79,21 @@ export async function openInEditor(path: string, line: number): Promise<boolean>
     body: JSON.stringify({ path, line }),
   });
   return r.ok;
+}
+
+export async function loadSetup(): Promise<SetupData> {
+  const r = await fetch("/api/setup");
+  if (!r.ok) throw new Error(`setup: ${r.status}`);
+  return r.json();
+}
+
+/** Writes codezoom.config.json and re-indexes; resolves with the new type count. */
+export async function saveSetup(config: Config): Promise<{ types: number }> {
+  const r = await fetch("/api/setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Codezoom": "1" },
+    body: JSON.stringify(config),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
 }

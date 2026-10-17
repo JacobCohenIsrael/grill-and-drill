@@ -52,21 +52,36 @@ codezoom writes into the project.
 
 ## Own code
 
-Own code is chosen by assembly, from the `.csproj` files Unity generates for
-Rider. Without a config file the defaults are: every assembly with files
-under `Assets/`, minus test assemblies and vendor folders (`Plugins`,
-`ThirdParty` at any depth; `TextMesh Pro`, `Photon`, … right under
-`Assets/`). Third-party code in other folders needs the config. Editor and generated code are
-included. `Library`, `Temp`, `obj`, `.git` and `.claude/worktrees` are never
-read. To change it, write `codezoom.config.json` at the project root by hand:
+Own code is chosen by assembly. The first run in a project (no
+`codezoom.config.json` yet) opens the **setup page** before anything else;
+`codezoom setup` or the Setup link in the top bar reopens it. It shows the
+Unity version and every assembly, grouped by its top folder under `Assets/`
+or `Packages/` (biggest first), each with its file count and the namespace
+roots its files declare, so a vendor SDK stands out next to your own
+namespaces. One click ticks or unticks a whole folder group; opening an
+assembly shows its folders, where a vendor folder inside it can be left out.
+Pre-ticks follow the default rules: assemblies with files under `Assets/`,
+minus test assemblies; vendor folders (`Plugins`, `ThirdParty` at any depth;
+`TextMesh Pro`, `Photon`, … right under `Assets/`) stay out. Save writes:
 
 ```json
 {
   "assemblies": ["MyGame.Core", "MyGame.Runtime", "MyGame.Editor"],
-  "excludeFolders": ["Assets/MyGame/Generated/Legacy"],
+  "excluded": ["Assembly-CSharp-firstpass", "MyGame.Tests", "SomeVendorSDK"],
+  "excludeFolders": ["Assets/ConsolePro"],
   "includeFolders": ["Assets/Plugins/MyOwnPlugin"]
 }
 ```
+
+An assembly in neither list is new: it follows the default rules, and the
+top bar offers "N new assemblies: review". A config without `excluded`
+(written by hand) lists all of own code, as before. For folders, the most
+specific rule wins. `--config FILE` keeps the config outside the project.
+
+Without `.csproj` files (a fresh clone), assemblies come from `.asmdef` and
+`.asmref` files and Unity's folder rules; open the project once in Unity or
+Rider for exact results. `Library`, `Temp`, `obj`, `.git` and
+`.claude/worktrees` are never read.
 
 ## How it reads C#
 

@@ -88,4 +88,32 @@ export interface Meta {
   editor?: string | null;
   /** Goes up each time the index is rebuilt while the server runs. */
   version?: number;
+  /** Assemblies the config has not reviewed yet; the top bar offers setup for them. */
+  newAssemblies?: string[];
+}
+
+/** One assembly as the setup page shows it. */
+export interface SetupAssembly {
+  name: string;
+  /** Its C# files, project-relative. */
+  files: string[];
+  /** Namespace roots its files declare, most files first ("(global)" for none). */
+  namespaces: [string, number][];
+  /** What the default rules (round 3) say. */
+  defaultOwn: boolean;
+  defaultReason: string | null;
+}
+
+export interface SetupData {
+  project: {
+    name: string;
+    unityVersion: string | null;
+    unityInstalled: boolean;
+    standIn: string | null;
+    source: "csproj" | "asmdef";
+  };
+  /** Where Save writes, as shown to the user. */
+  configPath: string;
+  config: import("./ownRules.js").Config | null;
+  assemblies: SetupAssembly[];
 }

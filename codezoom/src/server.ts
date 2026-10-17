@@ -8,6 +8,8 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import type { Screens } from "./graph/screens.js";
+import type { Config } from "./shared/ownRules.js";
+import type { SetupData } from "./shared/types.js";
 import { openInEditor, type Editor } from "./editor.js";
 
 const WEB_ROOT = fileURLToPath(new URL("../web/", import.meta.url));
@@ -25,16 +27,31 @@ export interface Running {
   server: Server;
   port: number;
   /** Serves a new index and tells open pages about it. */
-  update(screens: Screens, changed: string[]): void;
+  update(screens: Screens, changed: string[], reason: IndexEvent["reason"]): void;
 }
 
 /** What an "index" event tells the page. */
 export interface IndexEvent {
   version: number;
   changed: string[];
+  /** "files": files changed while open. "setup": the setup page saved a new config. */
+  reason: "files" | "setup";
 }
 
-export async function startServer(screens: Screens, preferredPort: number, root: string, editor: Editor | null): Promise<Running> {
+/** The setup page's two calls, answered by whoever owns the config and the index. */
+export interface SetupHooks {
+  describe(): Promise<SetupData>;
+  /** Writes the config and re-indexes; resolves with the new type count. */
+  save(config: Config): Promise<{ types: number }>;
+}
+
+export async function startServer(
+  screens: Screens,
+  preferredPort: number,
+  root: string,
+  editor: Editor | null,
+  setup: SetupHooks,
+): Promise<Running> {
   if (!existsSync(join(WEB_ROOT, "index.html"))) {
     throw new Error(`page not built: run "npm run build" in the codezoom folder (looked in ${WEB_ROOT})`);
   }
@@ -73,6 +90,27 @@ export async function startServer(screens: Screens, preferredPort: number, root:
       );
       return;
     }
+    if (path === "/api/setup" && req.method === "GET") {
+      setup.describe().then(
+        (data) => send(res, 200, TYPES[".json"], JSON.stringify(data)),
+        (e) => send(res, 500, "text/plain", String(e)),
+      );
+      return;
+    }
+    if (path === "/api/setup" && req.method === "POST") {
+      // writes a file in the project: same guard as /api/open
+      if (req.headers["x-codezoom"] !== "1") return send(res, 403, "text/plain", "forbidden");
+      readBody(req).then(async (body) => {
+        const config = asConfig(body);
+        if (!config) return send(res, 400, "text/plain", "bad config");
+        try {
+          send(res, 200, TYPES[".json"], JSON.stringify(await setup.save(config)));
+        } catch (e) {
+          send(res, 500, "text/plain", e instanceof Error ? e.message : String(e));
+        }
+      });
+      return;
+    }
     if (path === "/api/open" && req.method === "POST") {
       // a custom header: a page on another site cannot send it without our consent
       if (req.headers["x-codezoom"] !== "1") return send(res, 403, "text/plain", "forbidden");
@@ -99,8 +137,8 @@ export async function startServer(screens: Screens, preferredPort: number, root:
       return;
     }
     if (path.startsWith("/api/")) return send(res, 404, "text/plain", "not found");
-    // the page: every Focus has its own URL under /n/
-    const file = path === "/" || path.startsWith("/n/") ? "index.html" : normalize(path).replace(/^([/\\])+/, "");
+    // the page: every Focus has its own URL under /n/, and setup is /setup
+    const file = path === "/" || path === "/setup" || path.startsWith("/n/") ? "index.html" : normalize(path).replace(/^([/\\])+/, "");
     const full = join(WEB_ROOT, file);
     if (!full.startsWith(WEB_ROOT) || !existsSync(full)) return send(res, 404, "text/plain", "not found");
     send(res, 200, TYPES[extname(full)] ?? "application/octet-stream", readFileSync(full));
@@ -115,16 +153,29 @@ export async function startServer(screens: Screens, preferredPort: number, root:
     if (ok) {
       // keeps idle connections open through proxies and sleep
       setInterval(() => listeners.forEach((l) => l.write(": ping\n\n")), 30_000).unref();
-      const update = (next: Screens, changed: string[]) => {
+      const update = (next: Screens, changed: string[], reason: IndexEvent["reason"]) => {
         version++;
         current = serve(next);
-        const event: IndexEvent = { version, changed };
+        const event: IndexEvent = { version, changed, reason };
         for (const l of listeners) l.write(`event: index\ndata: ${JSON.stringify(event)}\n\n`);
       };
       return { server, port, update };
     }
   }
   throw new Error(`no free port from ${preferredPort} to ${preferredPort + 19}`);
+}
+
+/** Only lists of strings: whatever else arrives is not written to disk. */
+function asConfig(body: unknown): Config | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  const list = (v: unknown) => (Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null);
+  const assemblies = list(b.assemblies);
+  const excluded = list(b.excluded);
+  const excludeFolders = list(b.excludeFolders ?? []);
+  const includeFolders = list(b.includeFolders ?? []);
+  if (!assemblies || !excluded || !excludeFolders || !includeFolders) return null;
+  return { assemblies, excluded, excludeFolders, includeFolders };
 }
 
 /** Requests must name this server, so a rebinding DNS name cannot reach the API. */

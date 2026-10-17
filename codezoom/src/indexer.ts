@@ -11,13 +11,17 @@ import { readTypeDefs } from "./dotnet/metadata.js";
 import { IndexCache } from "./cache.js";
 import { buildGraph, type Graph } from "./graph/build.js";
 import { buildScreens, type Screens } from "./graph/screens.js";
-import { readCsprojs, type Csproj } from "./unity/csproj.js";
+import type { Csproj } from "./unity/csproj.js";
+import { loadProjects, type ProjectFacts } from "./unity/project.js";
 import { InstalledEditors } from "./unity/editors.js";
 import { LibraryMap } from "./unity/libraries.js";
 import { chooseOwnCode, loadConfig, vendorLibrary, type OwnCode } from "./unity/ownCode.js";
 
 export interface Index {
   root: string;
+  project: ProjectFacts;
+  /** Every assembly found, own or not, for the setup page. */
+  projects: Csproj[];
   own: OwnCode;
   graph: Graph;
   screens: Screens;
@@ -41,11 +45,9 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
   };
   const start = mark;
 
-  const projects = readCsprojs(root);
+  const { projects, facts: project } = loadProjects(root);
   if (projects.length === 0) {
-    throw new Error(
-      `No .csproj files in ${root}. Open the project in Unity once with Rider (or Visual Studio) as the external editor so Unity generates them.`,
-    );
+    throw new Error(`No C# found in ${root}: no .csproj files, and no scripts under Assets/. Run codezoom from a Unity project root.`);
   }
   const { config, path: configPath } = loadConfig(root, configFile);
   const own = chooseOwnCode(projects, config, configPath);
@@ -177,11 +179,14 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
     timings,
   };
   const screens = buildScreens(graph, basename(root), stats);
+  screens.meta.newAssemblies = own.newAssemblies;
   lap("screens");
   cache.end();
   timings.total = Math.round(performance.now() - start);
   return {
     root,
+    project,
+    projects,
     own,
     graph,
     screens,

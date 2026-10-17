@@ -9,8 +9,11 @@
     lastMove: { kind: string; ms: number; motion: string; fps: number | null; longestFrameMs: number | null } | null;
     onJump: (id: string) => void;
     onTrail: (index: number) => void;
+    /** Opens the setup page; `onlyNew` for the assemblies the config has not reviewed. */
+    onSetup: (onlyNew: boolean) => void;
   }
-  let { meta, nodes, trail, lastMove, onJump, onTrail }: Props = $props();
+  let { meta, nodes, trail, lastMove, onJump, onTrail, onSetup }: Props = $props();
+  const newCount = $derived(meta.newAssemblies?.length ?? 0);
 
   let crumbs: HTMLElement | undefined = $state();
   $effect(() => {
@@ -41,6 +44,12 @@
       >{lastMove.kind} {lastMove.ms} ms{lastMove.fps ? ` · ${lastMove.fps} fps` : ""}</span
     >
   {/if}
+  {#if newCount}
+    <button class="setup new" onclick={() => onSetup(true)} title={meta.newAssemblies?.join(", ")}
+      >{newCount} new {newCount === 1 ? "assembly" : "assemblies"}: review</button
+    >
+  {/if}
+  <button class="setup" onclick={() => onSetup(false)} title="Choose which assemblies are your code">Setup</button>
   <Search nodes={meta.nodes} {onJump} />
 </header>
 
@@ -92,6 +101,22 @@
   }
   .sep {
     color: var(--faint);
+  }
+  .setup {
+    border: 1px solid var(--line);
+    background: var(--bg);
+    border-radius: 5px;
+    padding: 4px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+  .setup:hover,
+  .setup.new {
+    border-color: var(--accent);
+  }
+  .setup.new {
+    background: var(--accent-soft);
   }
   .latency {
     color: var(--faint);

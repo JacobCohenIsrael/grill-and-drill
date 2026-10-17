@@ -6,6 +6,8 @@
   import ScreenView from "./ScreenView.svelte";
   import StartPage from "./StartPage.svelte";
   import SourcePanel from "./SourcePanel.svelte";
+  import SetupPage from "./SetupPage.svelte";
+  import { findFocus } from "../../src/shared/search";
   import { findBox, prefersReducedMotion, zoom, type ZoomPlan } from "./zoom";
 
   type MoveKind = "drill" | "back" | "jump" | "open" | "history" | "refresh";
@@ -44,6 +46,8 @@
   let stageEl: HTMLDivElement | undefined = $state();
   let zooming = $state(false);
   let sourceOpen = $state(false);
+  /** On /setup: show only new assemblies, and where to go after Save. */
+  let setupPage = $state.raw<{ onlyNew: boolean; then: string | null } | null>(null);
   let marks = $state.raw<RefWire[] | null>(null);
   const top = $derived(layers[layers.length - 1]);
   let lastMove = $state.raw<Move | null>(null);
@@ -199,6 +203,12 @@
 
   function fromLocation(kind: MoveKind) {
     const path = location.pathname;
+    const params = new URLSearchParams(location.search);
+    setupPage = path === "/setup" ? { onlyNew: params.get("new") === "1", then: params.get("then") } : null;
+    if (setupPage) {
+      document.title = "Setup · codezoom";
+      return;
+    }
     if (path.startsWith("/n/")) {
       const id = decodeURIComponent(path.slice(3));
       const stateTrail = (history.state as { trail?: string[] } | null)?.trail;
@@ -212,6 +222,28 @@
       initialQuery = new URLSearchParams(location.search).get("q") ?? "";
       document.title = "codezoom";
     }
+  }
+
+  function openSetup(onlyNew: boolean) {
+    const q = new URLSearchParams();
+    if (focusId) q.set("then", focusId);
+    if (onlyNew) q.set("new", "1");
+    history.pushState(null, "", `/setup${q.size ? `?${q}` : ""}`);
+    fromLocation("open");
+  }
+
+  /** After Save: the new index, then the Type named on the command line or the Focus setup was opened from. */
+  async function afterSetup() {
+    const then = setupPage?.then ?? null;
+    const next = await loadMeta();
+    clearCaches();
+    meta = next;
+    indexUpdate = null;
+    layers = [];
+    const found = then ? findFocus(next.nodes, then) : [];
+    const target = found.length === 1 ? `/n/${encodeURIComponent(found[0].id)}` : then ? `/?q=${encodeURIComponent(then)}` : "/";
+    history.replaceState(null, "", target);
+    fromLocation("open");
   }
 
   function onKey(e: KeyboardEvent) {
@@ -238,6 +270,7 @@
     window.addEventListener("popstate", onPop);
     // files changed: future moves and search use the new index; the screen on show stays until refreshed
     const stopListening = onIndexUpdate(async (e) => {
+      if (e.reason === "setup") return; // the setup page reloads the index itself
       const next = await loadMeta();
       clearCaches();
       meta = next;
@@ -262,8 +295,10 @@
   <p class="message">Loading…</p>
 {:else}
   <div class="app">
-    <TopBar {meta} {nodes} {trail} {lastMove} onJump={jump} onTrail={goToTrail} />
-    {#if focusId === null}
+    <TopBar {meta} {nodes} {trail} {lastMove} onJump={jump} onTrail={goToTrail} onSetup={openSetup} />
+    {#if setupPage}
+      <SetupPage onlyNew={setupPage.onlyNew} onSaved={afterSetup} />
+    {:else if focusId === null}
       <StartPage {meta} query={initialQuery} onJump={jump} />
     {:else if layers.length}
       {#if indexUpdate}
