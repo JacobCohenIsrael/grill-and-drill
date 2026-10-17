@@ -38,3 +38,25 @@ options.
 
 Every v1 feature is built. The remaining v1 step is a sign-off by hand on a
 real project. codezoom isn't published to npm yet.
+
+## Credits
+
+**Inspiration.** codezoom started from
+[LIVE: Uncle Bob on Software Fundamentals in the Age of AI](https://www.youtube.com/watch?v=zcLPGC-tvgk&t=127s),
+a livestream on Matt Pocock's channel.
+
+**Robert C. Martin (Uncle Bob).** His
+[uml-viewer](https://github.com/unclebob/uml-viewer) is the idea codezoom grew
+from: a UML diagram you click through down to the source.
+[crapper](https://github.com/unclebob/crapper),
+[dryer](https://github.com/unclebob/dryer) and
+[mutator](https://github.com/unclebob/mutator) shaped how it reads code.
+codezoom shares no code with them; [docs/research.md](docs/research.md) and the
+[overview page](https://jacobcohenisrael.github.io/grill-and-drill/#lineage)
+explain what it borrowed.
+
+**Matt Pocock.** codezoom was designed with his
+[grill-with-docs](https://github.com/mattpocock/skills) skills, which produced
+[GLOSSARY.md](GLOSSARY.md) and the decision records in [docs/adr/](docs/adr/).
+The copies in `.claude/skills/` are MIT-licensed; their license is kept beside
+them.
