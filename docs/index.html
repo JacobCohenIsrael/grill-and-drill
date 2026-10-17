@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codezoom</title>
+<meta name="description" content="codezoom walks a Unity C# codebase one type at a time: a 55-second demo, what the tool does, and how Uncle Bob’s uml-viewer, crapper, dryer and mutator shaped it.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="codezoom">
+<meta property="og:description" content="codezoom walks a Unity C# codebase one type at a time: a 55-second demo, what the tool does, and how Uncle Bob’s uml-viewer, crapper, dryer and mutator shaped it.">
+<meta property="og:url" content="https://jacobcohenisrael.github.io/grill-and-drill/">
+<meta property="og:image" content="https://jacobcohenisrael.github.io/grill-and-drill/demo/poster.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect x=%273%27 y=%275%27 width=%2710%27 height=%276%27 rx=%271%27 fill=%27none%27 stroke=%27%236d9cf2%27 stroke-width=%271.5%27/%3E%3Cpath d=%27M8 1v4M8 11v4%27 stroke=%27%236d9cf2%27 stroke-width=%271.5%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@600;700;800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one reading column; the demo video and screenshots break out wider, like a diagram pinned beside notes. Palette borrowed from codezoom's own UI. */
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --ink: #1d1f23;
+    --muted: #5f636c;
+    --faint: #a3a7af;
+    --line: #dcdde0;
+    --accent: #2f6fdf;
+    --accent-soft: #dce7fb;
+    --back: #b5542d;
+    --cycle: #8a4fc4;
+    --code-bg: #eef0f3;
+    --font-display: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17181b; --panel: #1f2125; --ink: #e6e7ea; --muted: #a2a6b0; --faint: #62666f; --line: #34363c;
+      --accent: #6d9cf2; --accent-soft: #263552; --back: #e0865f; --cycle: #b98be6; --code-bg: #24262b;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17181b; --panel: #1f2125; --ink: #e6e7ea; --muted: #a2a6b0; --faint: #62666f; --line: #34363c;
+    --accent: #6d9cf2; --accent-soft: #263552; --back: #e0865f; --cycle: #b98be6; --code-bg: #24262b;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 17px/1.6 var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 56px 96px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 72px; }
+  .col { max-width: 700px; }
+  h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.12; }
+  h1 { font-size: clamp(44px, 7vw, 76px); font-weight: 800; letter-spacing: -0.03em; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: clamp(26px, 3.4vw, 34px); font-weight: 700; letter-spacing: -0.015em; }
+  h3 { font-size: 19px; font-weight: 700; }
+  p { margin: 0; }
+  .eyebrow { font: 500 12px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  section { display: grid; gap: 22px; }
+  section > header { display: grid; gap: 10px; }
+  .lede { font-size: 21px; line-height: 1.5; color: var(--ink); max-width: 640px; }
+  .muted { color: var(--muted); }
+  code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  a { color: var(--accent); }
+
+  .hero { display: grid; gap: 20px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 4px; }
+  .facts span { font: 500 13px/1 var(--font-mono); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; }
+
+  figure { margin: 0; display: grid; gap: 10px; min-width: 0; }
+  figure video, figure img { width: 100%; max-width: 100%; display: block; border-radius: 10px; border: 1px solid var(--line); background: #0e0f11; }
+  figcaption { font-size: 14px; color: var(--muted); }
+
+  /* the four moves, as a vocabulary card: term, keystroke, meaning */
+  .moves { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .move { background: var(--panel); padding: 18px 20px 20px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+  .move .term { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .move .term h3 { font-size: 22px; }
+  .move kbd { font: 500 12px/1 var(--font-mono); color: var(--muted); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 4px 6px; white-space: nowrap; }
+  .move p { font-size: 15px; color: var(--muted); }
+
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 36px; align-items: start; }
+  .split.flip { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+  .points { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+  .points li { display: grid; gap: 2px; }
+  .points b { font-weight: 600; }
+  .points span { color: var(--muted); font-size: 15.5px; }
+
+  /* UML edge legend, drawn like the tool draws it */
+  .legend { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: center; font-size: 15px; }
+  .legend svg { width: 64px; height: 14px; overflow: visible; }
+  .legend svg * { stroke: var(--muted); fill: none; stroke-width: 1.4; }
+  .legend .tri { fill: var(--panel); }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 620px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 600 12px/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); background: var(--bg); }
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 14px; white-space: nowrap; }
+  .chip { display: inline-block; font: 500 12px/1 var(--font-mono); border-radius: 999px; padding: 4px 8px; white-space: nowrap; }
+  .chip.own { background: var(--accent-soft); color: var(--accent); }
+  .chip.out { border: 1px solid var(--line); color: var(--muted); }
+
+  pre { margin: 0; background: var(--code-bg); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: 400 14px/1.55 var(--font-mono); }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 10px 28px; padding: 16px 0 0; border-top: 1px solid var(--line); }
+  .stats div { display: grid; gap: 2px; }
+  .stats b { font: 700 24px/1.1 var(--font-display); font-variant-numeric: tabular-nums; }
+  .stats span { font-size: 13px; color: var(--muted); }
+
+  /* lineage: one card per reference repo */
+  .repos { display: grid; gap: 18px; }
+  .repo { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: grid; gap: 14px; min-width: 0; }
+  .repo > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+  .repo > header .mono { color: var(--muted); font-size: 13px; }
+  .repo .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px 28px; }
+  .repo h4 { margin: 0 0 6px; font: 600 12px/1.2 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+  .repo h4.took { color: var(--accent); }
+  .repo h4.left { color: var(--back); }
+  .repo ul { margin: 0; padding-left: 18px; display: grid; gap: 7px; font-size: 15.5px; }
+  .repo li::marker { color: var(--faint); }
+
+  .timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-left: 2px solid var(--line); }
+  .timeline li { position: relative; padding: 0 0 16px 22px; display: grid; gap: 2px; }
+  .timeline li::before { content: ""; position: absolute; left: -7px; top: 7px; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--accent); }
+  .timeline .mono { color: var(--muted); font-size: 13px; }
+
+  .status { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+  .status div { display: grid; gap: 8px; align-content: start; }
+  .status ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 15.5px; }
+
+  @media (max-width: 820px) {
+    .split, .split.flip { grid-template-columns: minmax(0, 1fr); }
+    .wrap { gap: 56px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+<style>
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero col">
+    <p class="eyebrow">grill-and-drill · v1 feature-complete</p>
+    <h1>code<span>zoom</span></h1>
+    <p class="lede">A tool for walking an unfamiliar Unity C# codebase one type at a time. You pick a type, and codezoom draws a UML diagram of everything connected to it. Click any neighbour and it becomes the centre. That is the whole loop, and it is how you learn the architecture.</p>
+    <div class="facts">
+      <span>Unity C# first</span><span>runs in the browser</span><span>no Unity install needed to read code</span><span>moves draw in under 100 ms</span>
+    </div>
+  </header>
+
+  <section>
+    <header class="col">
+      <p class="eyebrow">Demo · 55 seconds</p>
+      <h2>Watch it on a sample project</h2>
+    </header>
+    <figure>
+      <video controls playsinline preload="metadata" poster="demo/poster.jpg">
+        <source src="demo/codezoom-demo.mp4" type="video/mp4">
+      </video>
+      <figcaption>Recorded from the real tool, driven by a script, on TinyTowers, a made-up tower-defense project built for this demo. It opens with the setup wizard on a first run, then shows Focus, Weight, Drill, Back, Jump and the source panel.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <header class="col">
+      <p class="eyebrow">What the tool does</p>
+      <h2>One type in the middle, its neighbours around it</h2>
+      <p class="muted">The type in the middle is the <b>Focus</b>. Types that depend on it sit in a row above. Types it depends on sit in a row below, so every arrow points down toward what gets used. Four moves get you around:</p>
+    </header>
+    <div class="moves">
+      <div class="move"><div class="term"><h3>Focus</h3><kbd>codezoom Tower</kbd></div><p>The type the screen is centred on. You name it on the command line, or pick it later.</p></div>
+      <div class="move"><div class="term"><h3>Drill</h3><kbd>click a box</kbd></div><p>A neighbour becomes the new Focus. The view zooms into that box, so you never lose your place.</p></div>
+      <div class="move"><div class="term"><h3>Back</h3><kbd>⌫ / ↩ box</kbd></div><p>Return to the previous Focus. Each session keeps its <b>Trail</b>, so Back retraces your steps.</p></div>
+      <div class="move"><div class="term"><h3>Jump</h3><kbd>/ search</kbd></div><p>Go straight to any type by name. Word starts work: <code>WSp</code> finds <code>WaveSpawner</code>.</p></div>
+    </div>
+
+    <div class="split">
+      <ul class="points">
+        <li><b>Boxes are sized by Weight</b><span>Weight is how heavily the using type relies on the other: the References it makes, and how many of its members make them. The biggest boxes come first, so the main dependency stands out at a glance. Hover a box to see the count and the exact lines.</span></li>
+        <li><b>UML edges, simplified to four kinds</b><span>An edge stands for every Reference between two types and is drawn as the strongest kind among them.</span></li>
+        <li><b>Libraries are single nodes</b><span>UnityEngine, a package or a vendor SDK each collapse into one rounded box, so your own types aren't buried under <code>Transform</code> and <code>Vector3</code>.</span></li>
+        <li><b>Source one click away</b><span>Click the Focus to read its code. Hovering a neighbour highlights its References, and "Open in Rider" jumps to the line.</span></li>
+      </ul>
+      <figure>
+        <img src="demo/weight.jpg" alt="codezoom showing Tower as the Focus, with TowerConfig and ITargetable drawn large in the Dependencies row and a hover card reading Weight 4: 4 References in 4 members of Tower" loading="lazy">
+        <figcaption>Tower as the Focus. TowerConfig and ITargetable are drawn large because Tower leans on them hardest. The hover card lists every Reference.</figcaption>
+      </figure>
+    </div>
+
+    <div class="legend col" aria-label="Edge kinds">
+      <svg viewBox="0 0 64 14"><line x1="0" y1="7" x2="50" y2="7"/><path class="tri" d="M50 1 L62 7 L50 13 Z"/></svg><span><b>Inherits</b>: a type and its base class</span>
+      <svg viewBox="0 0 64 14"><line x1="0" y1="7" x2="50" y2="7" stroke-dasharray="5 4"/><path class="tri" d="M50 1 L62 7 L50 13 Z"/></svg><span><b>Implements</b>: a type and an interface it implements</span>
+      <svg viewBox="0 0 64 14"><line x1="0" y1="7" x2="61" y2="7"/><path d="M53 2 L62 7 L53 12"/></svg><span><b>Has</b>: the type of one of its fields or properties</span>
+      <svg viewBox="0 0 64 14"><line x1="0" y1="7" x2="61" y2="7" stroke-dasharray="5 4"/><path d="M53 2 L62 7 L53 12"/></svg><span><b>Uses</b>: any other Reference</span>
+    </div>
+  </section>
+
+  <section>
+    <header class="col">
+      <p class="eyebrow">The demo project</p>
+      <h2>TinyTowers, set up with the wizard</h2>
+      <p class="muted">TinyTowers is a small, made-up tower-defense codebase in <code>examples/TinyTowers</code>: 43 C# files of towers, enemies, waves, an economy, saving, UI and editor tools. It has never been opened in Unity. It deliberately includes things a real project has and the wizard has to sort out: a test assembly, a vendor plugin under <code>Assets/Plugins</code>, and an editor-only assembly.</p>
+    </header>
+    <div class="split flip">
+      <figure>
+        <img src="demo/wizard.jpg" alt="The codezoom setup page for TinyTowers, listing assemblies grouped by folder, with TinyTowers assemblies ticked and Tests and Plugins unticked" loading="lazy">
+        <figcaption>First run: the setup page lists every assembly, grouped by folder, with codezoom's guesses already ticked.</figcaption>
+      </figure>
+      <div style="display:grid; gap:18px; min-width:0">
+        <p>With no <code>.csproj</code> files, codezoom read the assemblies from <code>.asmdef</code> files and Unity's folder rules. It borrowed UnityEngine's type tables from the Unity 6000.6.5f1 editor installed on this machine. The default guesses were right, so the wizard needed no changes; one click on <b>Save and index</b> wrote:</p>
+<pre>{
+  "assemblies": [
+    "Assembly-CSharp", "TinyTowers.Core", "TinyTowers.Editor",
+    "TinyTowers.Gameplay", "TinyTowers.UI"
+  ],
+  "excluded": ["FancyTween", "TinyTowers.Tests"]
+}</pre>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Assembly</th><th>Where</th><th>Files</th><th>Wizard</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">TinyTowers.Gameplay</td><td>Assets/TinyTowers</td><td class="num">26</td><td><span class="chip own">own code</span></td><td>towers, enemies, waves, economy, save</td></tr>
+          <tr><td class="mono">TinyTowers.Core</td><td>Assets/TinyTowers</td><td class="num">6</td><td><span class="chip own">own code</span></td><td>event bus, health, game clock, interfaces</td></tr>
+          <tr><td class="mono">TinyTowers.UI</td><td>Assets/TinyTowers</td><td class="num">5</td><td><span class="chip own">own code</span></td><td>HUD and shop, built on UI Toolkit</td></tr>
+          <tr><td class="mono">TinyTowers.Editor</td><td>Assets/TinyTowers</td><td class="num">2</td><td><span class="chip own">own code</span></td><td>editor tools are your code too</td></tr>
+          <tr><td class="mono">Assembly-CSharp</td><td>Assets/Scripts</td><td class="num">1</td><td><span class="chip own">own code</span></td><td>the scene bootstrap, via Unity's folder rules</td></tr>
+          <tr><td class="mono">TinyTowers.Tests</td><td>Assets/Tests</td><td class="num">2</td><td><span class="chip out">left out</span></td><td>test assembly</td></tr>
+          <tr><td class="mono">FancyTween</td><td>Assets/Plugins</td><td class="num">1</td><td><span class="chip out">left out</span></td><td>vendor folder; drawn as one library node</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="stats" aria-label="Index results">
+      <div><b>47</b><span>types</span></div>
+      <div><b>136</b><span>edges</span></div>
+      <div><b>272</b><span>References</span></div>
+      <div><b>3</b><span>foreign libraries</span></div>
+      <div><b>0</b><span>names not resolved</span></div>
+      <div><b>46 ms</b><span>first index</span></div>
+      <div><b>2–3 ms</b><span>per Drill / Back / Jump</span></div>
+    </div>
+    <div class="split">
+      <figure>
+        <img src="demo/drill.jpg" alt="codezoom after drilling from Tower to EnemyRegistry to Enemy, with a breadcrumb trail at the top and EnemyRegistry marked as the previous Focus" loading="lazy">
+        <figcaption>Two Drills in: Tower › EnemyRegistry › Enemy. The ↩ box is the previous Focus. ⟲ marks a cycle: Enemy and EnemyRegistry use each other.</figcaption>
+      </figure>
+      <figure>
+        <img src="demo/source.jpg" alt="codezoom with the WaveSpawner source panel open, lines 26 and 29 highlighted because the EventBus neighbour is hovered" loading="lazy">
+        <figcaption>After a Jump to WaveSpawner, its source is open. Hovering EventBus highlights the two lines that use it.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <header class="col">
+      <p class="eyebrow">Where it came from</p>
+      <h2>How the four reference repos shaped codezoom</h2>
+      <p class="muted">The research started from four of Uncle Bob's tools. codezoom shares no code and no file format with any of them, because none of them can read C#, and the user's projects are mostly Unity C#. What it took from them were ideas, conventions and a few deliberate disagreements.</p>
+    </header>
+
+    <div class="repos">
+      <article class="repo">
+        <header><h3>uml-viewer</h3><span class="mono">Clojure + Quil · live, clickable UML of a namespace tree</span></header>
+        <p>The direct ancestor, and the source of the most important disagreement. uml-viewer starts at the project root and drills <i>down</i>: double-click a package to see what's inside it. codezoom starts anywhere and moves <i>across</i>: the Focus is any type, and drilling re-centres on a neighbour. That one change is why the core terms are Focus, Drill, Back and Jump, and why "Back" means returning along your Trail, not climbing to a parent folder.</p>
+        <div class="cols">
+          <div>
+            <h4 class="took">Carried over</h4>
+            <ul>
+              <li>The promise of a UML you click through, all the way down to the source line.</li>
+              <li>UML arrowheads for inheritance and interfaces, plain arrows for dependencies, cut down to four edge kinds.</li>
+              <li>Outside libraries drawn as one rounded node each, set apart from your own boxes.</li>
+              <li>Arrows pointing down toward what gets used, the same reading direction uml-viewer gives "good" dependencies.</li>
+              <li>A split between what a person decides (uml-viewer's policy file, codezoom's <code>codezoom.config.json</code>) and what the tool regenerates and nobody edits (its IR, codezoom's index).</li>
+              <li>Reading code into language-neutral facts first and building the graph from those, which leaves room for a second reader later.</li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="left">Left behind, for now</h4>
+            <ul>
+              <li>The containment drill: zooming into nested namespaces.</li>
+              <li>Colouring boxes by test quality (CRAP and mutation scores). codezoom uses box size for something else: Weight.</li>
+              <li>Architecture "levels" with red arrows for dependency-rule violations, and what-if regroupings.</li>
+              <li>The companion agent that edits code from the diagram.</li>
+              <li>Forking it at all: it runs on the JVM and has no C# reader (ADR 0001).</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="repo">
+        <header><h3>crapper, dryer, mutator</h3><span class="mono">Python + tree-sitter · CRAP scores, duplicate code, mutation testing</span></header>
+        <p>These three are built alike, and they shaped how codezoom reads code rather than how it looks. Between them they show that tree-sitter is enough to understand code structure in several languages without a compiler. Their shared habits about which files count, and about only redoing work that changed, show up in codezoom almost one for one.</p>
+        <div class="cols">
+          <div>
+            <h4 class="took">Carried over</h4>
+            <ul>
+              <li><b>tree-sitter instead of a compiler.</b> codezoom parses C# with tree-sitter and resolves names itself, so it works on a fresh clone with no Unity or Roslyn (ADR 0003).</li>
+              <li><b>Which files count.</b> Like their discovery rules, codezoom always skips build output (<code>Library</code>, <code>Temp</code>, <code>obj</code>, <code>.git</code>), leaves tests out by default and treats <code>Plugins</code>, <code>ThirdParty</code> and vendor folders as someone else's code. The setup wizard is those defaults made visible and editable.</li>
+              <li><b>Only redo what changed.</b> mutator keeps its results for any function whose text hasn't changed. codezoom caches what each file gave in <code>.codezoom/</code> and re-reads only changed files: a large project relaunches in 0.8 s instead of 2.8 s.</li>
+              <li><b>One stable name per unit.</b> They agree on a namespace-plus-name key for every function. codezoom keys every node by its full type name (<code>TinyTowers.Towers.Tower</code>), so layering metrics on later would be a lookup by name.</li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="left">Done differently</h4>
+            <ul>
+              <li>None of them read C#. That gap, found in the first grill round, is why codezoom has its own reader and name resolver for namespaces, <code>using</code>s, aliases, nested and partial types.</li>
+              <li>Their unit is the function. codezoom's node is the type, because the goal is architecture, and a method-level call graph would multiply the boxes and need exact call resolution (ADR 0002).</li>
+              <li>Their results are committed snapshots in <code>.metrics/</code>. codezoom's cache is git-ignored, because it is a speed-up, not a result.</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <div class="split">
+      <div style="display:grid; gap:14px; min-width:0">
+        <h3>From research to v1</h3>
+        <p class="muted">The research write-up named the overloaded words up front: "entry point", "drill" and "level" each meant something else already. The grill-with-docs interview turned them into the glossary's preferred terms. Focus replaced "entry point", and "level" is on Back's avoid list. Four ADRs record the decisions that would be hard to undo.</p>
+      </div>
+      <ol class="timeline">
+        <li><span class="mono">7c08086</span>Research on the four repos, plus Matt Pocock's grill-with-docs skills</li>
+        <li><span class="mono">f1443c9</span>Glossary and four ADRs from the grill session</li>
+        <li><span class="mono">d8a0719</span>First slice on 2d-space-survival: Focus, Drill, Back, Jump</li>
+        <li><span class="mono">5781cf1</span>Works on a large production project</li>
+        <li><span class="mono">f0e563c</span>Zoom animation, source panel, cache and watching, Weight sizing</li>
+        <li><span class="mono">699dc54</span>Setup wizard: the last v1 feature</li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <header class="col">
+      <p class="eyebrow">Where it stands</p>
+      <h2>Feature-complete, one sign-off away from v1</h2>
+    </header>
+    <div class="status">
+      <div>
+        <h3>Done</h3>
+        <ul>
+          <li>Focus, Drill, Back and Jump, with the zoom animation</li>
+          <li>Weight-sized boxes and four edge kinds</li>
+          <li>Source panel with Open in Rider</li>
+          <li>Per-file cache and live re-indexing</li>
+          <li>Setup wizard for choosing own code</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Still open</h3>
+        <ul>
+          <li>The "golden walks" sign-off: about five Trails through a large real project, checked by hand</li>
+          <li>Not published to npm yet; installed from the repo with <code>npm link</code></li>
+          <li>No automated tests; <code>npm run check</code> only type-checks</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Known blind spots</h3>
+        <ul>
+          <li>The type of a <code>var</code> local and extension-method calls aren't seen (ADR 0003)</li>
+          <li>Wiring done only in scenes, prefabs or ScriptableObject assets is invisible (ADR 0002)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+</body>
+</html>
