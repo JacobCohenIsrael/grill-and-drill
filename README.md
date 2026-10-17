@@ -1,26 +1,39 @@
 # grill-and-drill
 
-Home of **codezoom**, a tool for walking an unfamiliar Unity C# codebase one
-type at a time. Pick a type and codezoom draws a UML diagram of what it uses
-and what uses it. Click any neighbour to make it the centre, and step Back
-along your trail.
+Home of **codezoom**, a tool for walking an unfamiliar C# codebase (a Unity
+project or a .NET solution) one type at a time. Pick a type and codezoom
+draws a UML diagram of what it uses and what uses it. Click any neighbour to
+make it the centre, and step Back along your trail. Coding agents can ask the
+same questions through MCP.
 
 **[Watch the 55-second demo and read the overview →](https://jacobcohenisrael.github.io/grill-and-drill/)**
 
 ## Try it
 
-From the root of a Unity project (needs Node.js 22.23 or newer):
+From the root of a Unity project or a .NET solution (needs Node.js 22.23 or
+newer):
 
 ```bash
 npx codezoom
 ```
 
-The first run opens a setup page where you choose which assemblies are your
-code. To try it on the demo project in this repo:
+The first run opens a setup page where you choose which assemblies (or
+projects) are your code. To try it on the demo projects in this repo:
 
 ```bash
 cd examples/TinyTowers
 npx codezoom Tower
+```
+
+```bash
+cd examples/TinyShop
+npx codezoom OrderService
+```
+
+To give Claude Code the same view of a project, run this in its root:
+
+```bash
+claude mcp add codezoom --scope project -- npx -y codezoom mcp
 ```
 
 See [codezoom/README.md](codezoom/README.md) for options and for building
@@ -32,6 +45,7 @@ from source.
 |---|---|
 | [codezoom/](codezoom/) | The tool: a Node/TypeScript indexer with a Svelte page in the browser |
 | [examples/TinyTowers/](examples/TinyTowers/) | A small made-up Unity project for demos |
+| [examples/TinyShop/](examples/TinyShop/) | A small made-up .NET solution for demos |
 | [GLOSSARY.md](GLOSSARY.md) | The project's terms: Focus, Drill, Back, Jump, Weight, … |
 | [docs/adr/](docs/adr/) | Decisions that would be hard to undo, and why |
 | [docs/research.md](docs/research.md) | The starting research on Uncle Bob's uml-viewer, crapper, dryer and mutator |
@@ -39,8 +53,10 @@ from source.
 
 ## Status
 
-codezoom 1.0.1 is [on npm](https://www.npmjs.com/package/codezoom). The last
-v1 step is a sign-off by hand: golden walks through a large real project.
+codezoom 1.1.0 is [on npm](https://www.npmjs.com/package/codezoom). It adds
+agent access (an MCP server and `--json` output) and plain .NET C# projects.
+The last v1 step is still a sign-off by hand: golden walks through a large
+real project.
 
 ## Credits
 

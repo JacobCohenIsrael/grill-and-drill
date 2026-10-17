@@ -45,8 +45,8 @@ The edge kind from a type to an interface it implements.
 _Avoid_: Realizes, realization
 
 **Has**:
-The edge kind from a type to the type of one of its fields or properties,
-except events.
+The edge kind from a type to the type of one of its fields, properties or
+primary-constructor parameters, except events.
 _Avoid_: Association, aggregation, composition, owns
 
 **Uses**:
