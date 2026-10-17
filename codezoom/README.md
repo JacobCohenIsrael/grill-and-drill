@@ -34,10 +34,11 @@ address yourself). Exact results come from the `.csproj` files Unity writes
 when Rider or Visual Studio is its external editor; without them (a fresh
 clone) codezoom reads `.asmdef` files and Unity's folder rules instead.
 
-npm 11 may warn that the install scripts of `tree-sitter` and
-`tree-sitter-c-sharp` were not run. Nothing is missing: those scripts only
-compile from source when no prebuilt binary fits, and both packages ship
-prebuilt binaries for macOS, Linux and Windows (x64 and arm64).
+On a clean install npm 11 may print `npm warn install-scripts 2 packages have
+install scripts not yet covered by allowScripts`, naming `tree-sitter` and
+`tree-sitter-c-sharp`. That is expected and harmless: both ship prebuilt
+binaries for macOS, Linux and Windows (x64 and arm64), and codezoom loads
+those, so there is no need to allow the scripts.
 
 ## The first run: what is your code
 

@@ -39,7 +39,7 @@ from source.
 
 ## Status
 
-codezoom 1.0.0 is [on npm](https://www.npmjs.com/package/codezoom). The last
+codezoom 1.0.1 is [on npm](https://www.npmjs.com/package/codezoom). The last
 v1 step is a sign-off by hand: golden walks through a large real project.
 
 ## Credits
