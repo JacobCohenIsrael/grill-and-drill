@@ -76,6 +76,12 @@ _Avoid_: Go to, open, search
 The ordered list of Foci visited in one session, oldest first.
 _Avoid_: History, path, stack, breadcrumbs
 
+**Golden walk**:
+A written-down sequence of moves through a project the reader knows, with
+the neighbours each screen must (and must not) show, used to check that the
+diagram is right.
+_Avoid_: Test, tour, script, scenario
+
 ## Around the Focus
 
 **Dependents**:
