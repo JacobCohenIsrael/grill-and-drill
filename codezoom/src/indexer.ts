@@ -1,7 +1,7 @@
 // Full index of a Unity project: own code, foreign libraries, graph, screens.
 // The first slice re-indexes on every launch (no cache, no watching).
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { readFile } from "./csharp/reader.js";
 import type { FileFacts } from "./csharp/facts.js";
@@ -9,7 +9,8 @@ import type { ForeignType } from "./csharp/resolver.js";
 import { readTypeDefs } from "./dotnet/metadata.js";
 import { buildGraph, type Graph } from "./graph/build.js";
 import { buildScreens, type Screens } from "./graph/screens.js";
-import { readCsprojs } from "./unity/csproj.js";
+import { readCsprojs, type Csproj } from "./unity/csproj.js";
+import { InstalledEditors } from "./unity/editors.js";
 import { LibraryMap } from "./unity/libraries.js";
 import { chooseOwnCode, loadConfig, vendorLibrary, type OwnCode } from "./unity/ownCode.js";
 
@@ -19,10 +20,12 @@ export interface Index {
   graph: Graph;
   screens: Screens;
   timings: Record<string, number>;
-  dlls: { read: number; missing: string[] };
+  dlls: { read: number; missing: string[]; substituted: number; extraModules: number; editors: InstalledEditors };
+  /** Every foreign type name read, for diagnostics. */
+  foreign: ForeignType[];
 }
 
-export function indexProject(root: string): Index {
+export function indexProject(root: string, configFile?: string): Index {
   const timings: Record<string, number> = {};
   let mark = performance.now();
   const lap = (name: string) => {
@@ -38,7 +41,7 @@ export function indexProject(root: string): Index {
       `No .csproj files in ${root}. Open the project in Unity once with Rider (or Visual Studio) as the external editor so Unity generates them.`,
     );
   }
-  const { config, path: configPath } = loadConfig(root);
+  const { config, path: configPath } = loadConfig(root, configFile);
   const own = chooseOwnCode(projects, config, configPath);
   lap("projects");
 
@@ -48,49 +51,88 @@ export function indexProject(root: string): Index {
   // foreign types: every DLL the own assemblies reference, plus assemblies
   // they reference by project that are not own code
   const ownNames = new Set(own.assemblies.map((p) => p.assembly));
-  const dllPaths = new Map<string, string>(); // hint path -> assembly name
+  const byAssembly = new Map(projects.map((p) => [p.assembly, p]));
+  const editors = new InstalledEditors();
+  const dllPaths = new Map<string, string>(); // path -> assembly name
+  const missing = new Set<string>();
+  const fromSource = new Set<Csproj>(); // referenced, not own, no DLL built
+  let substituted = 0;
+  const seenHints = new Set<string>();
   for (const p of own.assemblies) {
-    for (const r of p.references) dllPaths.set(r.hintPath, r.name);
+    for (const r of p.references) {
+      if (seenHints.has(r.hintPath)) continue;
+      seenHints.add(r.hintPath);
+      if (existsSync(r.hintPath)) dllPaths.set(r.hintPath, r.name);
+      else {
+        const alt = editors.substitute(r.hintPath);
+        if (alt) {
+          dllPaths.set(alt, r.name);
+          substituted++;
+        } else missing.add(r.hintPath);
+      }
+    }
     for (const ref of p.projectReferences) {
       if (ownNames.has(ref)) continue;
-      dllPaths.set(join(root, "Library", "ScriptAssemblies", `${ref}.dll`), ref);
+      const dll = join(root, "Library", "ScriptAssemblies", `${ref}.dll`);
+      const proj = byAssembly.get(ref);
+      if (existsSync(dll)) dllPaths.set(dll, ref);
+      else if (proj) fromSource.add(proj);
+      else missing.add(dll);
     }
   }
+  // modules move between Unity versions (PreserveAttribute left SharedInternalsModule):
+  // when one is missing in the stand-in editor, read all of its modules
+  let extraModules = 0;
+  if ([...missing].some((m) => m.includes("/Managed/UnityEngine/"))) {
+    const loaded = new Set([...dllPaths.keys()].map((p) => basename(p)));
+    for (const folder of editors.moduleFolders()) {
+      for (const f of readdirSync(folder)) {
+        if (!f.endsWith(".dll") || loaded.has(f)) continue;
+        dllPaths.set(join(folder, f), f.slice(0, -4));
+        loaded.add(f);
+        extraModules++;
+      }
+    }
+  }
+  const libraryOf = (assembly: string, path: string) => {
+    const proj = byAssembly.get(assembly);
+    return proj && !ownNames.has(assembly) ? libraries.forProject(proj) : libraries.forAssembly(assembly, path);
+  };
   const foreign: ForeignType[] = [];
-  const missing: string[] = [];
   let read = 0;
   for (const [path, assembly] of dllPaths) {
-    if (!existsSync(path)) {
-      missing.push(path);
-      continue;
-    }
-    const lib = libraries.forAssembly(assembly, path);
+    const lib = libraryOf(assembly, path);
     try {
       for (const d of readTypeDefs(path)) {
         foreign.push({ full: d.namespace ? `${d.namespace}.${d.name}` : d.name, name: d.name, arity: d.arity, namespace: d.namespace, lib, isInterface: d.isInterface });
       }
       read++;
     } catch {
-      missing.push(path);
+      missing.add(path);
     }
   }
   lap("foreign");
 
-  // vendor source inside own assemblies: its types are foreign
-  for (const f of own.vendorFiles) {
-    const facts = readSource(root, f.path, f.assembly);
+  // vendor source inside own assemblies, and referenced assemblies with no
+  // DLL built: read their declarations, their types are foreign
+  const vendorSources = [
+    ...own.vendorFiles.map((f) => ({ ...f, lib: vendorLibrary(f.path) })),
+    ...[...fromSource].flatMap((p) => p.compile.filter((f) => f.endsWith(".cs")).map((path) => ({ path, assembly: p.assembly, lib: libraries.forProject(p) }))),
+  ];
+  const definesOf = new Map(projects.map((p) => [p.assembly, new Set(p.defines)]));
+  for (const f of vendorSources) {
+    const facts = readSource(root, f.path, f.assembly, definesOf.get(f.assembly));
     if (!facts) continue;
-    const lib = vendorLibrary(f.path);
     for (const t of facts.types) {
       if (t.outer) continue;
-      foreign.push({ full: t.key, name: t.name, arity: t.arity, namespace: t.namespace, lib, isInterface: t.kind === "interface" });
+      foreign.push({ full: t.key, name: t.name, arity: t.arity, namespace: t.namespace, lib: f.lib, isInterface: t.kind === "interface" });
     }
   }
   lap("vendor");
 
   const files: FileFacts[] = [];
   for (const f of own.files) {
-    const facts = readSource(root, f.path, f.assembly);
+    const facts = readSource(root, f.path, f.assembly, definesOf.get(f.assembly));
     if (facts) files.push(facts);
   }
   lap("parse");
@@ -111,15 +153,15 @@ export function indexProject(root: string): Index {
   const screens = buildScreens(graph, basename(root), stats);
   lap("screens");
   timings.total = Math.round(performance.now() - start);
-  return { root, own, graph, screens, timings, dlls: { read, missing } };
+  return { root, own, graph, screens, timings, dlls: { read, missing: [...missing], substituted, extraModules, editors }, foreign };
 }
 
-function readSource(root: string, path: string, assembly: string): FileFacts | null {
+function readSource(root: string, path: string, assembly: string, defines?: Set<string>): FileFacts | null {
   let text: string;
   try {
     text = readFileSync(join(root, path), "utf8");
   } catch {
     return null;
   }
-  return readFile(path, assembly, text.replace(/^﻿/, ""));
+  return readFile(path, assembly, text.replace(/^\uFEFF/, ""), defines);
 }

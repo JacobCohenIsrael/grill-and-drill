@@ -58,8 +58,12 @@ export class Resolver {
     for (let n = ns; n; n = n.includes(".") ? n.slice(0, n.lastIndexOf(".")) : "") this.namespaces.add(n);
   }
 
-  /** Resolves a Reference to the type it names, or null. */
-  resolve(ref: RawRef, from: OwnType): Target | null {
+  /**
+   * Resolves a Reference to the type it names, or null. `via` collects the
+   * own types a qualified name passes through on the way to a nested type:
+   * `EventBus.GameEvents` names EventBus too.
+   */
+  resolve(ref: RawRef, from: OwnType, via?: OwnType[]): Target | null {
     const segs = ref.name.segs;
     if (ref.expr) {
       const first = segs[0].name;
@@ -70,22 +74,23 @@ export class Resolver {
       // [Foo] means FooAttribute or Foo
       const last = segs[segs.length - 1];
       if (!last.name.endsWith("Attribute")) {
-        const withSuffix = this.resolveName({ global: ref.name.global, segs: [...segs.slice(0, -1), { name: last.name + "Attribute", arity: last.arity }] }, ref, from);
+        const withSuffix = this.resolveName({ global: ref.name.global, segs: [...segs.slice(0, -1), { name: last.name + "Attribute", arity: last.arity }] }, ref, from, false, via);
         if (withSuffix) return withSuffix;
       }
     }
-    return this.resolveName(ref.name, ref, from);
+    return this.resolveName(ref.name, ref, from, false, via);
   }
 
   /** Resolves a base-list entry, before nested lookup through base classes is possible. */
-  resolveBase(ref: RawRef, from: OwnType): Target | null {
-    return this.resolveName(ref.name, ref, from, true);
+  resolveBase(ref: RawRef, from: OwnType, via?: OwnType[]): Target | null {
+    return this.resolveName(ref.name, ref, from, true, via);
   }
 
-  private resolveName(name: NameSyntax, ref: RawRef, from: OwnType, noInheritedNested = false): Target | null {
+  private resolveName(name: NameSyntax, ref: RawRef, from: OwnType, noInheritedNested = false, via?: OwnType[]): Target | null {
     const segs = name.segs;
     let cur = this.first(segs[0], name.global, ref, from, noInheritedNested);
     if (cur === null || cur === "typeParam") return null;
+    const passed: OwnType[] = [];
     for (let i = 1; i < segs.length; i++) {
       const s = segs[i];
       if ("ns" in cur) {
@@ -99,12 +104,14 @@ export class Resolver {
       } else if (cur.type.own) {
         const n = nestedIn(cur.type.own, s, !noInheritedNested);
         if (!n) break; // a member of the type: the Reference is to the type
+        passed.push(cur.type.own);
         cur = { type: { own: n } };
       } else {
         break;
       }
     }
     if ("ns" in cur) return null;
+    via?.push(...passed);
     return cur.type;
   }
 

@@ -3,7 +3,7 @@
 // assemblies and vendor folders are out, generated and editor code are in.
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { Csproj } from "./csproj.js";
 import type { LibraryInfo } from "./libraries.js";
 
@@ -26,7 +26,6 @@ const VENDOR_CONTAINERS = new Set(["plugins", "thirdparty", "third party", "thir
 /** Folders that are one vendor's code. */
 const VENDOR_FOLDERS = new Set(["textmesh pro", "demigiant", "photon", "assetstoretools"]);
 
-const isVendorFolder = (name: string) => VENDOR_CONTAINERS.has(name.toLowerCase()) || VENDOR_FOLDERS.has(name.toLowerCase());
 
 export interface OwnCode {
   configPath: string | null;
@@ -39,9 +38,13 @@ export interface OwnCode {
   vendorFiles: { path: string; assembly: string }[];
 }
 
-export function loadConfig(root: string): { config: Config; path: string | null } {
-  const path = join(root, CONFIG_FILE);
-  if (!existsSync(path)) return { config: {}, path: null };
+/** The project's codezoom.config.json, or the file given with --config. */
+export function loadConfig(root: string, explicitPath?: string): { config: Config; path: string | null } {
+  const path = explicitPath ? resolve(explicitPath) : join(root, CONFIG_FILE);
+  if (!existsSync(path)) {
+    if (explicitPath) throw new Error(`config file not found: ${path}`);
+    return { config: {}, path: null };
+  }
   const raw = JSON.parse(readFileSync(path, "utf8"));
   return { config: raw as Config, path };
 }
@@ -70,16 +73,27 @@ export function chooseOwnCode(projects: Csproj[], config: Config, configPath: st
 
   const files: OwnCode["files"] = [];
   const vendorFiles: OwnCode["vendorFiles"] = [];
+  const kept: Csproj[] = [];
   for (const p of assemblies) {
+    const own: OwnCode["files"] = [];
+    const vendor: OwnCode["vendorFiles"] = [];
     for (const path of p.compile) {
       if (!path.endsWith(".cs")) continue;
       if (ALWAYS_SKIP.some((s) => path.startsWith(s) || path.includes("/" + s))) continue;
       const included = include.some((f) => path.startsWith(f));
-      const vendor = exclude.some((f) => path.startsWith(f)) || (!included && isVendorPath(path));
-      (vendor ? vendorFiles : files).push({ path, assembly: p.assembly });
+      const isVendor = exclude.some((f) => path.startsWith(f)) || (!included && isVendorPath(path));
+      (isVendor ? vendor : own).push({ path, assembly: p.assembly });
     }
+    if (own.length === 0) {
+      // all of it is someone else's: a foreign library, read like any other
+      skipped.push({ assembly: p.assembly, reason: p.compile.length ? "only vendor folders" : "no source files" });
+      continue;
+    }
+    kept.push(p);
+    files.push(...own);
+    vendorFiles.push(...vendor);
   }
-  return { configPath, assemblies, files, skipped, vendorFiles };
+  return { configPath, assemblies: kept, files, skipped, vendorFiles };
 }
 
 function folderPrefix(f: string): string {
@@ -87,8 +101,16 @@ function folderPrefix(f: string): string {
   return clean.endsWith("/") ? clean : clean + "/";
 }
 
+/**
+ * Container folders (Plugins, ThirdParty, …) mark vendor code at any depth.
+ * A vendor's own folder name (Photon, Demigiant, …) only counts right under
+ * Assets/ or a container: Assets/Scripts/Game/Photon/ is the user's code.
+ */
 function isVendorPath(path: string): boolean {
-  return path.split("/").slice(0, -1).some(isVendorFolder);
+  const folders = path.split("/").slice(0, -1).map((f) => f.toLowerCase());
+  return folders.some(
+    (f, i) => VENDOR_CONTAINERS.has(f) || (VENDOR_FOLDERS.has(f) && (i === 1 || VENDOR_CONTAINERS.has(folders[i - 1]))),
+  );
 }
 
 /** The foreign library a vendor source file belongs to, e.g. Assets/Plugins/Foo/... -> "Foo". */
@@ -101,5 +123,7 @@ export function vendorLibrary(path: string): LibraryInfo {
     }
     if (VENDOR_FOLDERS.has(p)) return { key: parts.slice(0, i + 1).join("/"), name: parts[i], hidden: false };
   }
-  return { key: parts.slice(0, -1).join("/"), name: parts[parts.length - 2] ?? path, hidden: false };
+  // no vendor folder: the top folder under Assets/ (Assets/UniWebView/Script/x.cs -> UniWebView)
+  const top = parts[0] === "Assets" && parts.length > 2 ? 2 : parts.length - 1;
+  return { key: parts.slice(0, top).join("/"), name: parts[top - 1] ?? path, hidden: false };
 }

@@ -48,10 +48,13 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[]): Graph {
   const otherRefs: RawRef[] = [];
   for (const f of files) for (const r of f.refs) (r.role === "base" ? baseRefs : otherRefs).push(r);
   const baseTargets = new Map<RawRef, Target | null>();
+  const baseVia = new Map<RawRef, OwnType[]>();
   for (const r of baseRefs) {
     const from = ownOf(r.from);
-    const t = resolver.resolveBase(r, from);
+    const via: OwnType[] = [];
+    const t = resolver.resolveBase(r, from, via);
     baseTargets.set(r, t);
+    if (via.length) baseVia.set(r, via);
     if (!t || from.baseClass || from.foreignBase) continue;
     if (from.kind !== "class" && from.kind !== "record") continue;
     if (t.own && t.own.kind !== "interface" && t.own !== from) from.baseClass = t.own;
@@ -97,8 +100,19 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[]): Graph {
     graph.references++;
   };
 
-  for (const r of baseRefs) addRef(r, baseTargets.get(r) ?? null);
-  for (const r of otherRefs) addRef(r, resolver.resolve(r, ownOf(r.from)));
+  // `Outer.Inner` names Outer as well: a Uses Reference to each own type passed through
+  const addVia = (r: RawRef, via: OwnType[] | undefined) => {
+    for (const v of via ?? []) addRef({ ...r, role: "uses" }, { own: v });
+  };
+  for (const r of baseRefs) {
+    addRef(r, baseTargets.get(r) ?? null);
+    addVia(r, baseVia.get(r));
+  }
+  for (const r of otherRefs) {
+    const via: OwnType[] = [];
+    addRef(r, resolver.resolve(r, ownOf(r.from), via));
+    addVia(r, via);
+  }
   for (const m of graph.out.values()) for (const e of m.values()) e.refs.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
   return graph;
 }

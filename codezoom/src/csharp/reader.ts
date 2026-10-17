@@ -2,6 +2,7 @@
 // References. Both sides of every #if are read (ADR 0003).
 
 import Parser from "tree-sitter";
+import { conditionSymbols, configure, hasIf } from "./branches.js";
 import { LiteNode, liteTree } from "./lite.js";
 // deep import: the package's extensionless "main" warns under ESM
 import CSharp from "tree-sitter-c-sharp/bindings/node/index.js";
@@ -133,7 +134,46 @@ const SKIP_NODES = new Set([
 
 const NOT_TYPE_NAMES = new Set(["var", "nameof", "value", "dynamic", "_", "global"]);
 
-export function readFile(path: string, assembly: string, text: string): FileFacts {
+/**
+ * Reads both sides of every #if. When that does not parse (an #if splits a
+ * declaration), reads the file in two consistent configurations instead: the
+ * assembly's own symbols, and those with every symbol the file tests flipped.
+ * Each reading keeps line numbers, so References point at the real source.
+ */
+export function readFile(path: string, assembly: string, text: string, defines: Set<string> = new Set()): FileFacts {
+  const both = readText(path, assembly, text);
+  if (!both.parseErrors || !hasIf(text)) return both;
+  const flipped = new Set(defines);
+  for (const s of conditionSymbols(text)) {
+    if (flipped.has(s)) flipped.delete(s);
+    else flipped.add(s);
+  }
+  // the assembly's own configuration must parse: the flipped one alone can be
+  // nearly empty (a file wrapped in `#if !X`)
+  const own = readText(path, assembly, configure(text, defines));
+  if (own.parseErrors) return both;
+  const other = readText(path, assembly, configure(text, flipped));
+  return other.parseErrors ? own : mergeSides(own, other);
+}
+
+/** One file read twice: types once (members joined), References from both. */
+function mergeSides(a: FileFacts, b: FileFacts): FileFacts {
+  const byKey = new Map(a.types.map((t) => [t.key, t]));
+  const types = [...a.types];
+  for (const t of b.types) {
+    const same = byKey.get(t.key);
+    if (!same) {
+      types.push(t);
+      byKey.set(t.key, t);
+      continue;
+    }
+    const seen = new Set(same.members.map((m) => `${m.kind}\u0000${m.name}\u0000${m.line}`));
+    for (const m of t.members) if (!seen.has(`${m.kind}\u0000${m.name}\u0000${m.line}`)) same.members.push(m);
+  }
+  return { ...a, types, refs: [...a.refs, ...b.refs], globalUsings: [...new Set([...a.globalUsings, ...b.globalUsings])] };
+}
+
+function readText(path: string, assembly: string, text: string): FileFacts {
   const tree = parser.parse(text, null, { bufferSize: Math.max(32 * 1024, text.length * 2 + 16) });
   const root = liteTree(tree, text, CSharp as object);
   const facts: FileFacts = {

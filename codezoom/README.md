@@ -29,7 +29,8 @@ codezoom HullBehaviour
 It indexes own code, starts a server on `127.0.0.1:4777` (or the next free
 port) and opens the default browser at that Focus. With no name, or a name
 that matches several nodes, it opens the search page instead. Options:
-`--port N`, `--no-open`, `--report` (lists names it could not resolve).
+`--port N`, `--no-open`, `--config FILE` (use a config kept outside the
+project), `--report` (lists names it could not resolve).
 
 Every launch re-indexes from scratch; nothing is written into the project.
 
@@ -38,7 +39,8 @@ Every launch re-indexes from scratch; nothing is written into the project.
 Own code is chosen by assembly, from the `.csproj` files Unity generates for
 Rider. Without a config file the defaults are: every assembly with files
 under `Assets/`, minus test assemblies and vendor folders (`Plugins`,
-`ThirdParty`, `TextMesh Pro`, `Photon`, …). Editor and generated code are
+`ThirdParty` at any depth; `TextMesh Pro`, `Photon`, … right under
+`Assets/`). Third-party code in other folders needs the config. Editor and generated code are
 included. `Library`, `Temp`, `obj`, `.git` and `.claude/worktrees` are never
 read. To change it, write `codezoom.config.json` at the project root by hand:
 
@@ -59,7 +61,11 @@ read. To change it, write `codezoom.config.json` at the project root by hand:
 - Foreign libraries are found by reading the type tables of the DLLs the
   `.csproj` files reference (`src/dotnet/metadata.ts`). Each Unity package
   is one node; UnityEngine and UnityEditor modules are one node each; the
-  .NET base library is hidden.
+  .NET base library is hidden. When the project's Unity version is not
+  installed, the same DLLs are read from an installed editor.
+- When reading both sides of an `#if` at once does not parse (an `#if`
+  splits a declaration), the file is read in two configurations instead:
+  the assembly's own defines, and those with the file's symbols flipped.
 - Names in code bodies (`Foo.Bar()`, `x is Foo`) count only when no local,
   parameter or member of that name hides them. The type of a `var` local
   and extension-method calls are missed (ADR 0003).

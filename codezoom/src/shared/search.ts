@@ -47,6 +47,12 @@ function wordMatch(name: string, query: string): number {
   return -1;
 }
 
+/** The query starts every word of the name, one piece each: "GHS" covers GameHostService, not GameHostServiceFactory. */
+function coversAllWords(name: string, query: string): boolean {
+  const ws = words(name);
+  return readings(query).some((ps) => ps.length === ws.length && fromStart(ws, ps));
+}
+
 /** The row filter: substring of the name or full name, or word pieces of the name. */
 export function matchesName(n: NodeInfo, query: string): boolean {
   const q = query.trim();
@@ -59,10 +65,13 @@ function tier(n: NodeInfo, q: string, ql: string): number {
   const simple = simpleName(n);
   const sl = simple.toLowerCase();
   if (sl === ql || n.full.toLowerCase() === ql) return 0;
-  // "CA" or "CampAp" names several words: that reading beats a plain prefix (CameraRig)
+  // "CA" or "CampAp" names several words: that reading beats a plain prefix (CameraRig),
+  // and a name it covers whole beats a longer one
   const severalWords = pieces(q).length > 1;
-  if (sl.startsWith(ql)) return severalWords && wordMatch(simple, q) !== 0 ? 2 : 1;
-  if (wordMatch(simple, q) === 0) return severalWords ? 1 : 2;
+  const startsWords = wordMatch(simple, q) === 0;
+  if (severalWords && startsWords) return coversAllWords(simple, q) ? 1 : 1.5;
+  if (sl.startsWith(ql)) return severalWords ? 2 : 1;
+  if (startsWords) return 2;
   if (wordMatch(n.name, q) >= 0) return 3;
   if (n.name.toLowerCase().includes(ql)) return 4;
   if (n.full.toLowerCase().includes(ql)) return 5;

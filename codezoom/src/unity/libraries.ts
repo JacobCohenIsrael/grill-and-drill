@@ -4,6 +4,8 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import type { Csproj } from "./csproj.js";
+import { vendorLibrary } from "./ownCode.js";
 
 export interface LibraryInfo {
   /** Stable id part, e.g. "UnityEngine" or "com.unity.inputsystem". */
@@ -24,7 +26,10 @@ export class LibraryMap {
   private asmdefToPackage = new Map<string, PackageInfo>();
   private packageDirs = new Map<string, PackageInfo>(); // dir name in PackageCache -> package
 
+  private root: string;
+
   constructor(root: string) {
+    this.root = root;
     for (const base of [join(root, "Library", "PackageCache"), join(root, "Packages")]) {
       if (!existsSync(base)) continue;
       for (const dir of readdirSync(base, { withFileTypes: true })) {
@@ -59,7 +64,19 @@ export class LibraryMap {
     const cacheMatch = /\/(?:Library\/PackageCache|Packages)\/([^/]+)\//.exec(hintPath);
     const pkg = cacheMatch ? this.packageDirs.get(cacheMatch[1]) : undefined;
     if (pkg) return { key: pkg.name, name: pkg.displayName, hidden: false };
+    // a DLL inside Assets/ belongs to its vendor folder (Assets/Plugins/Demigiant/DOTween/DOTween.dll -> Demigiant)
+    if (hintPath.startsWith(this.root + "/Assets/")) return vendorLibrary(hintPath.slice(this.root.length + 1));
     return { key: assembly, name: assembly || basename(hintPath), hidden: false };
+  }
+
+  /** A non-own assembly that has a .csproj: its package, or the folder its files sit in. */
+  forProject(p: Csproj): LibraryInfo {
+    const fromAsmdef = this.asmdefToPackage.get(p.assembly);
+    if (fromAsmdef) return { key: fromAsmdef.name, name: fromAsmdef.displayName, hidden: false };
+    const first = p.compile.find((f) => f.endsWith(".cs"));
+    if (!first) return { key: p.assembly, name: p.assembly, hidden: false };
+    if (first.startsWith("Assets/")) return vendorLibrary(first);
+    return this.forAssembly(p.assembly, join(this.root, first));
   }
 }
 

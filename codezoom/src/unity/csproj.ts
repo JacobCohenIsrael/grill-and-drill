@@ -14,6 +14,8 @@ export interface Csproj {
   compile: string[]; // project-relative, forward slashes
   references: DllReference[];
   projectReferences: string[]; // assembly names
+  /** Preprocessor symbols Unity compiles this assembly with. */
+  defines: string[];
 }
 
 const unescapeXml = (s: string) =>
@@ -39,7 +41,8 @@ export function readCsprojs(root: string): Csproj[] {
         return name ?? (m[1] ?? m[2]).replace(/\\/g, "/").replace(/^.*\//, "").replace(/\.csproj$/, "");
       },
     );
-    result.push({ assembly, file: entry, compile, references, projectReferences });
+    const defines = (/<DefineConstants>([^<]*)<\/DefineConstants>/.exec(text)?.[1] ?? "").split(";").map((d) => d.trim()).filter(Boolean);
+    result.push({ assembly, file: entry, compile, references, projectReferences, defines });
   }
   return result.sort((a, b) => a.assembly.localeCompare(b.assembly));
 }
