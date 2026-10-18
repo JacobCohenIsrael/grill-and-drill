@@ -1,7 +1,7 @@
 // Talks to the local server. Screens are cached and preloaded so a move
 // never waits for the network (ADR 0004).
 
-import type { Meta, Screen, SetupData } from "../../src/shared/types";
+import type { AssetOutline, Meta, Screen, SetupData } from "../../src/shared/types";
 import type { Config } from "../../src/shared/ownRules";
 import { highlightLines } from "./highlight";
 
@@ -44,6 +44,7 @@ export interface Source {
 export function clearCaches() {
   cache.clear();
   sources.clear();
+  outlines.clear();
 }
 
 /** Calls back each time the server has rebuilt the index (files changed). */
@@ -96,4 +97,30 @@ export async function saveSetup(config: Config): Promise<{ types: number }> {
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+const outlines = new Map<string, Promise<AssetOutline>>();
+
+/** An asset's GameObject tree, components, assigned assets and calls; kept until the index changes. */
+export function loadOutline(id: string): Promise<AssetOutline> {
+  let p = outlines.get(id);
+  if (!p) {
+    p = fetch(`/api/outline?id=${encodeURIComponent(id)}`).then((r) => {
+      if (!r.ok) throw new Error(`outline: ${r.status}`);
+      return r.json() as Promise<AssetOutline>;
+    });
+    p.catch(() => outlines.delete(id));
+    outlines.set(id, p);
+  }
+  return p;
+}
+
+/** Asks the server to show the file in Finder. */
+export async function revealInFinder(path: string): Promise<boolean> {
+  const r = await fetch("/api/reveal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Codezoom": "1" },
+    body: JSON.stringify({ path }),
+  });
+  return r.ok;
 }

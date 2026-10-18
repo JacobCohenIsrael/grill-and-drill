@@ -1,11 +1,18 @@
 // What the server sends the page. Types only: imported by both sides.
 
-export type EdgeKind = "inherits" | "implements" | "has" | "uses";
+/** From a type: inherits, implements, has, uses. From an asset (ADR 0007): inherits, instance of, contains, assigns, calls. */
+export type EdgeKind = "inherits" | "implements" | "has" | "uses" | "instance of" | "contains" | "assigns" | "calls";
 
-export type NodeKind = "class" | "struct" | "interface" | "enum" | "record" | "record struct" | "delegate" | "library";
+export type TypeKind = "class" | "struct" | "interface" | "enum" | "record" | "record struct" | "delegate";
+/** A Unity asset node: a scene, a prefab, or a ScriptableObject asset. */
+export type AssetNodeKind = "scene" | "prefab" | "asset";
+export type NodeKind = TypeKind | AssetNodeKind | "library";
+
+export const ASSET_KINDS: readonly NodeKind[] = ["scene", "prefab", "asset"];
+export const isAssetKind = (k: NodeKind): k is AssetNodeKind => k === "scene" || k === "prefab" || k === "asset";
 
 export interface NodeInfo {
-  /** Own type: full CLR-style name (`A.B.Outer+Inner`1`). Foreign library: `lib:<key>`. */
+  /** Own type: full CLR-style name (`A.B.Outer+Inner`1`). Foreign library: `lib:<key>`. Asset: `asset:<path>`. */
   id: string;
   /** Name drawn on screen; same-name types carry the shortest unique namespace ending. */
   name: string;
@@ -35,7 +42,7 @@ export interface Neighbour {
   members: number;
   /** sqrt(R x M): how heavily the using end relies on the other. */
   weight: number;
-  /** Namespace distance to the Focus; foreign libraries sort last. */
+  /** Namespace distance to the Focus (folder distance for an asset); assets sort after types, libraries last. */
   distance: number;
   /** In both rows. */
   cycle: boolean;
@@ -64,6 +71,8 @@ export interface FocusBox {
   /** Every declaration of the type (a partial type has several): index into Meta.files, line. */
   parts: { file: number; line: number }[];
   assembly: string;
+  /** An asset's box: component types with counts (scene, prefab) or its asset-assigning fields (ScriptableObject). */
+  asset?: { items: { text: string; own: boolean }[] };
 }
 
 export interface Screen {
@@ -79,6 +88,8 @@ export interface IndexStats {
   edges: number;
   references: number;
   unresolved: number;
+  /** Unity assets that became nodes. */
+  assets?: number;
   timings: Record<string, number>;
 }
 
@@ -137,4 +148,26 @@ export interface SetupData {
   configPath: string;
   config: import("./ownRules.js").Config | null;
   assemblies: SetupAssembly[];
+}
+
+/** One GameObject in an asset's outline (ADR 0007): what the side panel shows instead of YAML. */
+export interface OutlineObject {
+  name: string;
+  /** The GameObject path References use (`Canvas/Header/BuyButton`). */
+  path: string;
+  /** Component types; `id` is the node to go to, when there is one. */
+  components: { name: string; own: boolean; id: string | null }[];
+  /** Serialized fields that assign an asset. */
+  fields: { field: string; value: string; id: string | null }[];
+  /** UnityEvent calls: the method, and the type it runs on. */
+  calls: { method: string; type: string; id: string | null }[];
+  /** A nested prefab instance (or a variant's base) rooted here. */
+  prefab: { name: string; id: string | null; variant: boolean } | null;
+  children: OutlineObject[];
+}
+
+export interface AssetOutline {
+  id: string;
+  kind: AssetNodeKind;
+  roots: OutlineObject[];
 }

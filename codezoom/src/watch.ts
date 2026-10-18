@@ -44,7 +44,7 @@ export function watchProject(root: string, onChange: (paths: string[]) => void, 
     if (!existsSync(dir)) continue;
     watchers.push(
       watch(dir, { recursive: true }, (_event, name) => {
-        if (name && name.endsWith(".cs") && !isTemp(name)) note(`${folder}/${name.replace(/\\/g, "/")}`);
+        if (name && isUnityInput(name) && !isTemp(name)) note(`${folder}/${name.replace(/\\/g, "/")}`);
       }),
     );
   }
@@ -59,6 +59,13 @@ export function watchProject(root: string, onChange: (paths: string[]) => void, 
     clearTimeout(timer);
     for (const w of watchers) w.close();
   };
+}
+
+/** Scripts, scenes, prefabs, .asset files, and the .meta files that give them their GUIDs (ADR 0007). */
+function isUnityInput(name: string): boolean {
+  const lower = name.toLowerCase();
+  const base = lower.endsWith(".meta") ? lower.slice(0, -5) : lower;
+  return /\.(cs|unity|prefab|asset)$/.test(base) || (lower !== base && base.endsWith(".dll"));
 }
 
 /** A file a .NET index is read from: build output and the rest of obj/ are not. */

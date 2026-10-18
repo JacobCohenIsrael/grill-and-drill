@@ -1,5 +1,9 @@
 <script lang="ts">
+  import { isAssetKind } from "../../src/shared/types";
   import { BOX_H, type Box, type RowLayout } from "./layout";
+
+  /** An asset is drawn as a UML artifact: a page with its top-right corner folded. */
+  const FOLD = 9;
 
   interface Props {
     title: string;
@@ -55,11 +59,13 @@
       <svg width={layout.width} height={layout.height} role="list" aria-label={title}>
         {#each layout.boxes as b (b.n.id)}
           {@const lib = b.node.kind === "library"}
+          {@const asset = isAssetKind(b.node.kind)}
           <g
             class="box"
             class:hot={hoveredId === b.n.id}
             class:previous={b.previous}
             class:lib
+            class:asset
             data-id={b.n.id}
             data-size={b.size}
             transform="translate({b.x},{b.y}) scale({b.scale})"
@@ -71,11 +77,15 @@
             onmouseenter={(e) => onHover(b, e.currentTarget)}
             onmouseleave={() => onHover(null, null)}
           >
-            <rect width={b.innerW} height={BOX_H} rx={lib ? BOX_H / 2 : 3} vector-effect="non-scaling-stroke" />
+            <rect width={b.innerW} height={BOX_H} rx={lib ? BOX_H / 2 : asset ? 0 : 3} vector-effect="non-scaling-stroke" />
+            {#if asset}
+              <path class="corner" d="M{b.innerW - FOLD},0 L{b.innerW},{FOLD} L{b.innerW},0 Z" vector-effect="non-scaling-stroke" />
+              <path class="fold" d="M{b.innerW - FOLD},0 V{FOLD} H{b.innerW} M{b.innerW - FOLD},0 L{b.innerW},{FOLD}" vector-effect="non-scaling-stroke" />
+            {/if}
             <text class="label" x={b.innerW / 2} y={16}>{b.label}</text>
             <text class="name" class:abstract={b.node.abstract} x={b.innerW / 2} y={33}>{b.name}</text>
             {#if b.previous}<text class="mark back" x={lib ? 14 : 5} y={12}>↩</text>{/if}
-            {#if b.n.cycle}<text class="mark cycle" x={b.innerW - (lib ? 14 : 5)} y={12} text-anchor="end">⟲</text>{/if}
+            {#if b.n.cycle}<text class="mark cycle" x={b.innerW - (lib ? 14 : asset ? FOLD + 3 : 5)} y={12} text-anchor="end">⟲</text>{/if}
           </g>
         {/each}
       </svg>
@@ -149,6 +159,20 @@
   .box.lib rect {
     fill: var(--lib);
     stroke: var(--lib-stroke);
+  }
+  .corner {
+    fill: var(--bg);
+    stroke: var(--bg);
+    stroke-width: 2;
+  }
+  .fold {
+    fill: none;
+    stroke: var(--box-stroke);
+    stroke-width: 1;
+  }
+  .box.hot .fold,
+  .box:focus-visible .fold {
+    stroke: var(--accent);
   }
   .box.previous rect {
     stroke: var(--back);

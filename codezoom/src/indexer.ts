@@ -17,6 +17,7 @@ import { InstalledEditors } from "./unity/editors.js";
 import { LibraryMap, type LibraryInfo } from "./unity/libraries.js";
 import { chooseOwnCode, loadConfig, vendorLibrary, type OwnCode } from "./unity/ownCode.js";
 import { dotnetForeign, restoreNote } from "./dotnet/foreign.js";
+import { indexAssets, type AssetIndex } from "./unity/assets.js";
 
 export interface Index {
   root: string;
@@ -37,6 +38,8 @@ export interface Index {
   notes: string[];
   /** .NET: own projects not restored, and where the base library's names came from. */
   dotnet?: { unrestored: string[]; baseLibrary: string };
+  /** Unity: scenes, prefabs and ScriptableObject assets (ADR 0007). */
+  assets?: AssetIndex;
 }
 
 export interface IndexOptions {
@@ -119,6 +122,9 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
   const graph = buildGraph(files, foreign, { globalUsings: side.globalUsings, fallback: side.fallback });
   lap("resolve");
 
+  const assets = side.libraries ? indexAssets({ root, graph, own, projects, config, cache, libraries: side.libraries }) : undefined;
+  if (assets) lap("assets");
+
   const edges = [...graph.out.values()].reduce((n, m) => n + m.size, 0);
   const stats = {
     files: files.length,
@@ -127,6 +133,7 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
     edges,
     references: graph.references,
     unresolved: [...graph.unresolved.values()].reduce((a, b) => a + b, 0),
+    ...(assets ? { assets: graph.assets.size } : {}),
     timings,
   };
   const screens = buildScreens(graph, basename(root), stats);
@@ -151,6 +158,7 @@ export function indexProject(root: string, configFile?: string, cache: IndexCach
     fromCache: cache.hits,
     notes,
     ...(side.dotnet ? { dotnet: side.dotnet } : {}),
+    ...(assets ? { assets } : {}),
   };
 }
 
@@ -164,6 +172,8 @@ interface ForeignSide {
   dlls: Index["dlls"];
   notes: string[];
   dotnet?: Index["dotnet"];
+  /** Unity: the package map, which the assets need too. */
+  libraries?: LibraryMap;
 }
 
 function dotnetSide(projects: Csproj[], own: OwnCode, cache: IndexCache, options: IndexOptions): ForeignSide {
@@ -252,6 +262,7 @@ function unitySide(root: string, projects: Csproj[], own: OwnCode, cache: IndexC
     fallback: [],
     dlls: { read, missing: [...missing], substituted, extraModules, editors },
     notes: [],
+    libraries,
   };
 }
 

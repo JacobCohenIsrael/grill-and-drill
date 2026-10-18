@@ -4,7 +4,7 @@
 import type { FileFacts, RawRef, TypeDecl } from "../csharp/facts.js";
 import { Resolver, type FallbackRoot, type ForeignType, type OwnType, type Target } from "../csharp/resolver.js";
 import type { LibraryInfo } from "../unity/libraries.js";
-import type { EdgeKind } from "../shared/types.js";
+import type { AssetNodeKind, EdgeKind } from "../shared/types.js";
 
 export interface Reference {
   member: string;
@@ -26,9 +26,21 @@ export interface LibraryNode {
   lib: LibraryInfo;
 }
 
+/** A Unity asset that became a node (ADR 0007). */
+export interface AssetNode {
+  id: string;
+  path: string;
+  kind: AssetNodeKind;
+  /** «scene», «prefab», or the ScriptableObject's type name. */
+  label: string;
+  /** Component types with counts, or asset-assigning fields: the Focus box. */
+  box: { text: string; own: boolean }[];
+}
+
 export interface Graph {
   types: Map<string, OwnType>;
   libraries: Map<string, LibraryNode>;
+  assets: Map<string, AssetNode>;
   /** from -> to -> edge */
   out: Map<string, Map<string, Edge>>;
   /** to -> from -> edge */
@@ -37,7 +49,8 @@ export interface Graph {
   unresolved: Map<string, number>;
 }
 
-const STRENGTH: Record<EdgeKind, number> = { inherits: 4, implements: 3, has: 2, uses: 1 };
+/** Strongest first; a type's kinds and an asset's never meet on one edge (ADR 0007), so one scale serves both. */
+export const STRENGTH: Record<EdgeKind, number> = { inherits: 9, implements: 8, has: 7, uses: 6, "instance of": 5, contains: 4, assigns: 3, calls: 2 };
 
 export interface GraphOptions {
   /** Namespaces every file imports without saying so (a .NET project's implicit and <Using> usings). */
@@ -70,7 +83,7 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[], options: 
     else if (t.foreign && !t.foreign.isInterface) from.foreignBase = t.foreign;
   }
 
-  const graph: Graph = { types, libraries: new Map(), out: new Map(), in: new Map(), references: 0, unresolved: new Map() };
+  const graph: Graph = { types, libraries: new Map(), assets: new Map(), out: new Map(), in: new Map(), references: 0, unresolved: new Map() };
   const seen = new Set<string>();
   const addRef = (r: RawRef, target: Target | null) => {
     const from = ownOf(r.from);
@@ -96,17 +109,9 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[], options: 
     const kind: EdgeKind =
       r.role === "base" ? (isInterface && from.kind !== "interface" ? "implements" : "inherits") : r.role === "has" ? "has" : "uses";
     const place = `${from.key}\u0000${to}\u0000${r.from.file}\u0000${r.line}`;
-    let edge = graph.out.get(from.key)?.get(to);
-    if (!edge) {
-      edge = { from: from.key, to, kind, refs: [] };
-      mapOf(graph.out, from.key).set(to, edge);
-      mapOf(graph.in, to).set(from.key, edge);
-    }
-    if (STRENGTH[kind] > STRENGTH[edge.kind]) edge.kind = kind;
-    if (seen.has(place)) return;
+    const fresh = !seen.has(place);
     seen.add(place);
-    edge.refs.push({ member: r.member, typeLevel: isTypeLevel(r.member, r.from.name), file: r.from.file, line: r.line });
-    graph.references++;
+    linkEdge(graph, from.key, to, kind, fresh ? { member: r.member, typeLevel: isTypeLevel(r.member, r.from.name), file: r.from.file, line: r.line } : null);
   };
 
   // `Outer.Inner` names Outer as well: a Uses Reference to each own type passed through
@@ -124,6 +129,20 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[], options: 
   }
   for (const m of graph.out.values()) for (const e of m.values()) e.refs.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
   return graph;
+}
+
+/** Adds a Reference to the edge from -> to (made if new), which keeps the strongest kind; null adds only the kind. */
+export function linkEdge(graph: Graph, from: string, to: string, kind: EdgeKind, ref: Reference | null) {
+  let edge = graph.out.get(from)?.get(to);
+  if (!edge) {
+    edge = { from, to, kind, refs: [] };
+    mapOf(graph.out, from).set(to, edge);
+    mapOf(graph.in, to).set(from, edge);
+  }
+  if (STRENGTH[kind] > STRENGTH[edge.kind]) edge.kind = kind;
+  if (!ref) return;
+  edge.refs.push(ref);
+  graph.references++;
 }
 
 /** The member labels the reader gives References made by a type's declaration (reader.ts). */

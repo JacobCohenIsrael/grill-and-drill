@@ -1,0 +1,37 @@
+{
+  "name": "Goblins: two prefabs share one config asset",
+  "start": "Goblin.prefab",
+  "expect": {
+    "dependencies": [
+      { "name": "Goblin", "edge": "contains" },
+      { "name": "Health", "edge": "contains" },
+      { "name": "PathFollower", "edge": "contains" },
+      { "name": "Goblin.asset", "edge": "assigns", "cycle": true }
+    ],
+    "dependents": [{ "name": "Goblin.asset", "edge": "assigns", "cycle": true }]
+  },
+  "steps": [
+    {
+      "drill": "Goblin.asset",
+      "expect": {
+        "focus": "Goblin.asset",
+        "dependencies": [{ "name": "EnemyConfig", "edge": "instance of" }, { "name": "Goblin.prefab", "edge": "assigns", "cycle": true }],
+        "dependents": [
+          { "name": "Goblin.prefab", "edge": "assigns" },
+          { "name": "GoblinBoss.prefab", "edge": "assigns" },
+          { "name": "Wave1.asset", "edge": "assigns" }
+        ]
+      }
+    },
+    {
+      "drill": "EnemyConfig",
+      "expect": {
+        "focus": "EnemyConfig",
+        "dependents": [{ "name": "Goblin.asset", "edge": "instance of" }, { "name": "Enemy", "edge": "has" }],
+        "absent": { "dependencies": ["Goblin.asset", "Goblin.prefab"] }
+      }
+    },
+    { "back": true, "expect": { "focus": "Goblin.asset" } },
+    { "back": true, "expect": { "focus": "Goblin.prefab" } }
+  ]
+}

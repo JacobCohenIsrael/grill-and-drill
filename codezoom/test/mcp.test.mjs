@@ -112,9 +112,10 @@ test("mcp screen: rows are paged and filtered, totals always given", async () =>
 
     const unity = await call("screen", { focus: "UnityEngine" });
     assert.equal(unity.focus.kind, "library");
-    assert.deepEqual([unity.dependents.total, unity.dependents.shown], [28, 25], "25 per row by default");
+    // 28 types, and two prefabs whose UIDocument is UnityEngine's
+    assert.deepEqual([unity.dependents.total, unity.dependents.shown], [30, 25], "25 per row by default");
     const rest = await call("screen", { focus: "UnityEngine", offset: 25 });
-    assert.equal(rest.dependents.shown, 3);
+    assert.equal(rest.dependents.shown, 5);
     assert.equal(unity.dependencies.total, 0);
   });
 });
@@ -230,4 +231,23 @@ test("mcp on a .NET solution: unrestored answers say `dotnet restore` would make
     },
     { cwd: shop, foreign: join(here, "fixtures/tinyshop-foreign-types.json") },
   );
+});
+
+test("mcp: assets have a kind, search filters by it, and assets: false leaves them out", async () => {
+  await withServer(async ({ client, call }) => {
+    const { tools } = await client.listTools();
+    const search = tools.find((t) => t.name === "search");
+    assert.ok(search.inputSchema.properties.kind.enum.includes("prefab"));
+    assert.equal(search.inputSchema.properties.assets.type, "boolean");
+    const prefabs = await call("search", { query: "Goblin", kind: "prefab" });
+    assert.deepEqual(prefabs.results.map((r) => [r.name, r.kind]), [["Goblin.prefab", "prefab"], ["GoblinBoss.prefab", "prefab"]]);
+    const level = await call("screen", { focus: "Level1.unity" });
+    assert.equal(level.focus.kind, "scene");
+    assert.ok(level.focus.components.includes("GameBootstrap ×1"));
+    const spawner = await call("screen", { focus: "WaveSpawner", assets: false });
+    assert.ok(spawner.dependents.items.every((n) => !["scene", "prefab", "asset"].includes(n.kind)));
+    const refs = await call("references", { from: "Level1.unity", to: "WaveSpawner" });
+    assert.deepEqual(refs.references, [{ at: "Assets/TinyTowers/Scenes/Level1.unity:385", gameObject: "Canvas/Start Button" }]);
+    assert.match((await call("screen", { focus: "Level1.unity", assets: "no" })).error, /true or false/);
+  });
 });

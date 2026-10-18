@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import type { Meta, NodeInfo, RefWire, Screen } from "../../src/shared/types";
+  import { isAssetKind, type Meta, type NodeInfo, type RefWire, type Screen } from "../../src/shared/types";
   import { cachedScreen, clearCaches, loadMeta, loadScreens, onIndexUpdate } from "./api";
   import TopBar from "./TopBar.svelte";
   import ScreenView from "./ScreenView.svelte";
   import StartPage from "./StartPage.svelte";
   import SourcePanel from "./SourcePanel.svelte";
+  import OutlinePanel from "./OutlinePanel.svelte";
   import SetupPage from "./SetupPage.svelte";
   import { findFocus } from "../../src/shared/search";
+  import { animationsOn, storedFlag } from "../../src/shared/prefs";
   import { findBox, prefersReducedMotion, zoom, type ZoomPlan } from "./zoom";
 
   type MoveKind = "drill" | "back" | "jump" | "open" | "history" | "refresh";
@@ -57,6 +59,38 @@
   let initialQuery = $state("");
 
   const nodes = $derived(new Map<string, NodeInfo>((meta?.nodes ?? []).map((n) => [n.id, n])));
+
+  // "Show assets" (ADR 0007): on unless the reader turned it off; remembered in this browser
+  const SHOW_ASSETS = "codezoom.showAssets";
+  let showAssets = $state(storedFlag(readStored(SHOW_ASSETS), true));
+  // "Show animations": on unless the system asks for reduced motion; the reader's choice wins
+  const SHOW_ANIMATIONS = "codezoom.showAnimations";
+  let showAnimations = $state(animationsOn(readStored(SHOW_ANIMATIONS), prefersReducedMotion()));
+  const hasAssets = $derived((meta?.stats.assets ?? 0) > 0);
+  const searchNodes = $derived(showAssets ? (meta?.nodes ?? []) : (meta?.nodes ?? []).filter((n) => !isAssetKind(n.kind)));
+  function setShowAssets(on: boolean) {
+    showAssets = on;
+    store(SHOW_ASSETS, on);
+  }
+  function setShowAnimations(on: boolean) {
+    showAnimations = on;
+    store(SHOW_ANIMATIONS, on);
+    if (!on) running?.finish(); // a zoom under way ends now
+  }
+  function store(key: string, on: boolean) {
+    try {
+      localStorage.setItem(key, on ? "1" : "0");
+    } catch {
+      // storage blocked: the choice lasts until the page closes
+    }
+  }
+  function readStored(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
   const previousId = $derived(trail.length > 1 ? trail[trail.length - 2] : null);
 
   const moves: Move[] = [];
@@ -90,7 +124,7 @@
       };
       indexUpdate = null; // this screen is drawn from the newest index
       // Jump is a cut (round 2), and so is the first screen
-      const mayZoom = !!prev && prev.id !== id && kind !== "jump" && kind !== "open" && !prefersReducedMotion();
+      const mayZoom = !!prev && prev.id !== id && kind !== "jump" && kind !== "open" && showAnimations;
       layers = mayZoom ? [prev, layer] : [layer];
       await tick();
       const plan = mayZoom ? planZoom(prev, layer, backward) : null;
@@ -267,6 +301,12 @@
       })
       .catch((e) => (error = String(e)));
     const onPop = () => fromLocation("history");
+    // the system's reduced-motion setting changes: followed until the reader picks for themselves
+    const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const onMotion = () => {
+      if (readStored(SHOW_ANIMATIONS) === null) showAnimations = animationsOn(null, prefersReducedMotion());
+    };
+    motion?.addEventListener("change", onMotion);
     window.addEventListener("popstate", onPop);
     // files changed: future moves and search use the new index; the screen on show stays until refreshed
     const stopListening = onIndexUpdate(async (e) => {
@@ -282,6 +322,7 @@
     });
     return () => {
       window.removeEventListener("popstate", onPop);
+      motion?.removeEventListener("change", onMotion);
       stopListening();
     };
   });
@@ -295,11 +336,24 @@
   <p class="message">Loading…</p>
 {:else}
   <div class="app">
-    <TopBar {meta} {nodes} {trail} {lastMove} onJump={jump} onTrail={goToTrail} onSetup={openSetup} />
+    <TopBar
+      {meta}
+      {nodes}
+      {searchNodes}
+      {trail}
+      {lastMove}
+      showAssets={hasAssets ? showAssets : null}
+      onShowAssets={setShowAssets}
+      {showAnimations}
+      onShowAnimations={setShowAnimations}
+      onJump={jump}
+      onTrail={goToTrail}
+      onSetup={openSetup}
+    />
     {#if setupPage}
       <SetupPage onlyNew={setupPage.onlyNew} onSaved={afterSetup} />
     {:else if focusId === null}
-      <StartPage {meta} query={initialQuery} onJump={jump} />
+      <StartPage nodes={searchNodes} query={initialQuery} onJump={jump} />
     {:else if layers.length}
       {#if indexUpdate}
         <div class="notice" role="status">
@@ -325,6 +379,7 @@
                 nodes={layer.nodes}
                 files={layer.files}
                 previousId={layer.previousId}
+                {showAssets}
                 onDrill={drill}
                 onBack={back}
                 onOpenSource={() => (sourceOpen = !sourceOpen)}
@@ -334,7 +389,11 @@
           {/if}
         {/each}
       </div>
-      {#if sourceOpen && top && top.nodes.get(top.id)}
+      {#if sourceOpen && top && top.nodes.get(top.id) && isAssetKind(top.nodes.get(top.id)!.kind)}
+        {#key top.key}
+          <OutlinePanel focus={top.nodes.get(top.id)!} files={top.files} {marks} onDrill={(id) => drill(id)} onClose={() => (sourceOpen = false)} />
+        {/key}
+      {:else if sourceOpen && top && top.nodes.get(top.id)}
         {#key top.key}
           <SourcePanel
             focus={top.nodes.get(top.id)!}

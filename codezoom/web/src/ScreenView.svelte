@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { EdgeKind, NodeInfo, RefWire, Screen } from "../../src/shared/types";
+  import { isAssetKind, type EdgeKind, type Neighbour, type NodeInfo, type RefWire, type Screen } from "../../src/shared/types";
   import FocusBox from "./FocusBox.svelte";
   import Row from "./Row.svelte";
   import RefsPopover from "./RefsPopover.svelte";
@@ -18,8 +18,15 @@
     onOpenSource?: () => void;
     /** The References behind the hovered neighbour's edge, or null. */
     onHoverRefs?: (refs: RefWire[] | null) => void;
+    /** False leaves Unity assets out of both rows ("Show assets"). */
+    showAssets?: boolean;
   }
-  let { screen, focus, nodes, files, previousId, onDrill, onBack, onOpenSource, onHoverRefs }: Props = $props();
+  let { screen, focus, nodes, files, previousId, onDrill, onBack, onOpenSource, onHoverRefs, showAssets = true }: Props = $props();
+
+  // hidden assets leave the rows before they are sized, so the code boxes keep their own scale
+  const visible = (row: Neighbour[]) => (showAssets ? row : row.filter((n) => !isAssetKind(nodes.get(n.id)?.kind ?? "class")));
+  const dependents = $derived(visible(screen.dependents));
+  const dependencies = $derived(visible(screen.dependencies));
 
   let dependentsFilter = $state("");
   let dependenciesFilter = $state("");
@@ -29,12 +36,8 @@
   let lowerStrip: HTMLDivElement | undefined = $state();
   let layoutVersion = $state(0);
 
-  const upper = $derived(
-    layoutRow(screen.dependents, "dependents", (n) => matchesName(nodes.get(n.id)!, dependentsFilter), nodes, previousId),
-  );
-  const lower = $derived(
-    layoutRow(screen.dependencies, "dependencies", (n) => matchesName(nodes.get(n.id)!, dependenciesFilter), nodes, previousId),
-  );
+  const upper = $derived(layoutRow(dependents, "dependents", (n) => matchesName(nodes.get(n.id)!, dependentsFilter), nodes, previousId));
+  const lower = $derived(layoutRow(dependencies, "dependencies", (n) => matchesName(nodes.get(n.id)!, dependenciesFilter), nodes, previousId));
 
   // ---- hover: References behind one edge ----
   let hovered = $state.raw<{ box: Box; position: "above" | "below"; anchor: DOMRect } | null>(null);
@@ -142,8 +145,44 @@
   });
 
   const hotKey = $derived(hovered ? `${hovered.position}:${hovered.box.n.id}` : null);
-  const DASH: Record<EdgeKind, string | undefined> = { inherits: undefined, implements: "6 4", has: undefined, uses: "4 4" };
-  const HEAD: Record<EdgeKind, string> = { inherits: "tri", implements: "tri", has: "arrow", uses: "arrow" };
+  const DASH: Record<EdgeKind, string | undefined> = {
+    inherits: undefined,
+    implements: "6 4",
+    has: undefined,
+    uses: "4 4",
+    "instance of": "2 3",
+    contains: undefined,
+    assigns: "8 3",
+    calls: "2 3",
+  };
+  const HEAD: Record<EdgeKind, string> = {
+    inherits: "tri",
+    implements: "tri",
+    has: "arrow",
+    uses: "arrow",
+    "instance of": "tri",
+    contains: "arrow",
+    assigns: "arrow",
+    calls: "arrow",
+  };
+  /** Composition's filled diamond sits at the container: the asset the edge starts from. */
+  const START: Partial<Record<EdgeKind, string>> = { contains: "diamond" };
+  const KINDS: [EdgeKind, string][] = [
+    ["inherits", "Inherits"],
+    ["implements", "Implements"],
+    ["has", "Has"],
+    ["uses", "Uses"],
+    ["instance of", "Instance of"],
+    ["contains", "Contains"],
+    ["assigns", "Assigns"],
+    ["calls", "Calls"],
+  ];
+  // the legend names the kinds on this screen (all four of a type's when there are none)
+  const legend = $derived.by(() => {
+    const present = new Set([...dependents, ...dependencies].map((n) => n.edge));
+    const shown = KINDS.filter(([k]) => present.has(k));
+    return shown.length ? shown : KINDS.slice(0, 4);
+  });
 </script>
 
 <div class="screen" bind:this={mainEl}>
@@ -156,6 +195,9 @@
         <marker id="arrow{v}" viewBox="0 0 14 14" refX="13" refY="7" markerWidth="12" markerHeight="12" orient="auto" markerUnits="userSpaceOnUse">
           <path d="M1,1 L13,7 L1,13" class="head-arrow{v}" />
         </marker>
+        <marker id="diamond{v}" viewBox="0 0 18 10" refX="1" refY="5" markerWidth="16" markerHeight="9" orient="auto" markerUnits="userSpaceOnUse">
+          <path d="M1,5 L9,1 L17,5 L9,9 z" class="head-diamond{v}" />
+        </marker>
       {/each}
     </defs>
     {#each edges as e (e.key)}
@@ -167,6 +209,7 @@
         style:stroke-width={hot ? e.width + 0.8 : e.width}
         stroke-dasharray={DASH[e.kind]}
         marker-end="url(#{HEAD[e.kind]}{hot ? '-hot' : ''})"
+        marker-start={START[e.kind] ? `url(#${START[e.kind]}${hot ? "-hot" : ""})` : undefined}
       />
     {/each}
   </svg>
@@ -174,7 +217,7 @@
   <Row
     title="Dependents"
     hint="depend on {focus.name}"
-    total={screen.dependents.length}
+    total={dependents.length}
     layout={upper}
     position="above"
     hoveredId={hovered?.position === "above" ? hovered.box.n.id : null}
@@ -188,10 +231,15 @@
   <div class="middle">
     <FocusBox node={focus} box={screen.focus} {files} bind:boxEl={focusEl} {onOpenSource} />
     <div class="legend" aria-label="Edge kinds">
-      <svg width="250" height="64">
-        {#each [["inherits", "Inherits"], ["implements", "Implements"], ["has", "Has"], ["uses", "Uses"]] as [k, label], i (k)}
-          {@const kind = k as EdgeKind}
-          <path class="edge" d="M4,{10 + i * 15} H48" stroke-dasharray={DASH[kind]} marker-end="url(#{HEAD[kind]})" />
+      <svg width="250" height={legend.length * 15 + 4}>
+        {#each legend as [kind, label], i (kind)}
+          <path
+            class="edge"
+            d="M{START[kind] ? 14 : 4},{10 + i * 15} H48"
+            stroke-dasharray={DASH[kind]}
+            marker-end="url(#{HEAD[kind]})"
+            marker-start={START[kind] ? `url(#${START[kind]})` : undefined}
+          />
           <text x="58" y={14 + i * 15}>{label}</text>
         {/each}
       </svg>
@@ -201,7 +249,7 @@
   <Row
     title="Dependencies"
     hint="{focus.name} depends on"
-    total={screen.dependencies.length}
+    total={dependencies.length}
     layout={lower}
     position="below"
     hoveredId={hovered?.position === "below" ? hovered.box.n.id : null}
@@ -292,5 +340,15 @@
     fill: none;
     stroke: var(--accent);
     stroke-width: 1.6;
+  }
+  :global(.head-diamond) {
+    fill: var(--edge);
+    stroke: var(--edge);
+    stroke-width: 1;
+  }
+  :global(.head-diamond-hot) {
+    fill: var(--accent);
+    stroke: var(--accent);
+    stroke-width: 1;
   }
 </style>

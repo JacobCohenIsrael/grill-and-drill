@@ -5,7 +5,7 @@
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface Editor {
   name: string;
@@ -32,5 +32,17 @@ export function openInEditor(editor: Editor, file: string, line: number): Promis
     const child = spawn("open", ["-na", editor.app, "--args", "--line", String(line), file], { stdio: "ignore" });
     child.on("error", () => resolve(false));
     child.on("exit", (code) => resolve(code === 0));
+  });
+}
+
+/** Shows the file selected in Finder (Explorer, or the folder elsewhere): "Reveal in Finder" for assets. */
+export function revealInFileManager(file: string): Promise<boolean> {
+  const [cmd, args] =
+    process.platform === "darwin" ? ["open", ["-R", file]] : process.platform === "win32" ? ["explorer", [`/select,${file}`]] : ["xdg-open", [dirname(file)]];
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args as string[], { stdio: "ignore" });
+    child.on("error", () => resolve(false));
+    // Explorer exits 1 even when it worked
+    child.on("exit", (code) => resolve(code === 0 || process.platform === "win32"));
   });
 }

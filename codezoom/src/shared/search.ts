@@ -2,9 +2,11 @@
 // argument. A query matches by substring, or by word pieces: "CA" and
 // "CampAp" both find CampaignApplication.
 
-import type { NodeInfo } from "./types.js";
+import { isAssetKind, type NodeInfo } from "./types.js";
 
+/** A type's name without namespace or type parameters; an asset's file name (Goblin.prefab). */
 export function simpleName(n: NodeInfo): string {
+  if (isAssetKind(n.kind)) return n.name;
   return n.name.replace(/<.*$/, "").split(".").pop() ?? n.name;
 }
 

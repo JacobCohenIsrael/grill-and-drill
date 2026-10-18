@@ -28,8 +28,8 @@ const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--cache-di
        codezoom setup [same options]
        codezoom walk FILE... [--config FILE] [--cache-dir DIR] [--no-cache]
        codezoom mcp [--config FILE] [--cache-dir DIR] [--no-cache] [--no-watch]
-       codezoom search QUERY [--limit N] [--json]
-       codezoom screen NODE [--filter TEXT] [--limit N] [--offset N] [--json]
+       codezoom search QUERY [--kind KIND] [--limit N] [--no-assets] [--json]
+       codezoom screen NODE [--filter TEXT] [--limit N] [--offset N] [--no-assets] [--json]
        codezoom references FROM TO [--limit N] [--offset N] [--json]
 
 --foreign-types FILE reads foreign type names from a list (made by
@@ -72,7 +72,7 @@ async function main() {
   const open = !args.includes("--no-open");
   const report = args.includes("--report");
   const positional = args.filter(
-    (a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir", "--foreign-types", "--filter", "--limit", "--offset"].includes(args[i - 1]),
+    (a, i) => !a.startsWith("--") && !["--port", "--config", "--cache-dir", "--foreign-types", "--filter", "--limit", "--offset", "--kind"].includes(args[i - 1]),
   );
   const foreignFile = valueOf("--foreign-types");
   const indexOptions: IndexOptions = foreignFile ? { foreignTypes: fromForeignList(JSON.parse(readFileSync(foreignFile, "utf8"))) } : {};
@@ -100,7 +100,7 @@ async function main() {
       if (!/^\d+$/.test(v)) throw new Error(`${flag} needs a whole number`);
       return Number(v);
     };
-    const page = { filter: valueOf("--filter"), limit: number("--limit"), offset: number("--offset") };
+    const page = { filter: valueOf("--filter"), limit: number("--limit"), offset: number("--offset"), kind: valueOf("--kind"), assets: !args.includes("--no-assets") };
     process.exitCode = runQuery(queryCommand, positional.slice(1), page, args.includes("--json"), root, configPath, cacheDir, indexOptions);
     return;
   }
@@ -140,6 +140,10 @@ async function main() {
   console.log(
     `  ${s.files} files, ${s.types} types, ${s.libraries} foreign libraries, ${s.edges} edges, ${s.references} References (${s.unresolved} names not resolved)`,
   );
+  if (index.assets) {
+    const a = index.assets.stats;
+    console.log(`  assets: ${a.kept} wired to own code, of ${a.files} scenes, prefabs and .asset files (${a.read} in own folders, ${a.metas} GUIDs from .meta files)`);
+  }
   if (cacheDir) console.log(`  cache ${cacheDir}: ${index.fromCache} files reused, ${index.changed.length} read`);
   if (!hasConfig) console.log(`  no ${CONFIG_FILE} yet: the setup page opens first`);
   if (own.newAssemblies.length) console.log(`  ${own.newAssemblies.length} new assemblies not in the config yet: review them in setup`);
@@ -188,7 +192,7 @@ async function main() {
   };
 
   const editor = findRider();
-  const server = await startServer(screens, port, root, editor, setup);
+  const server = await startServer(screens, port, root, editor, setup, (id) => index.assets?.outline(id) ?? null);
   const base = `http://127.0.0.1:${server.port}`;
   let url = `${base}/`;
   if (setupCommand || !hasConfig) {
@@ -329,7 +333,7 @@ async function runMcp(root: string, configPath: string | undefined, cacheDir: st
 function runQuery(
   command: string,
   words: string[],
-  page: { filter?: string; limit?: number; offset?: number },
+  page: { filter?: string; limit?: number; offset?: number; kind?: string; assets?: boolean },
   json: boolean,
   root: string,
   configPath: string | undefined,
@@ -347,7 +351,7 @@ function runQuery(
   const q = new Query(index.screens, indexNotes(index));
   try {
     if (command === "search") {
-      const a = q.search(words[0], page.limit);
+      const a = q.search(words[0], page.limit, { kind: page.kind, assets: page.assets });
       console.log(json ? JSON.stringify(a, null, 2) : searchText(a));
     } else if (command === "screen") {
       const a = q.screen(words[0], page);

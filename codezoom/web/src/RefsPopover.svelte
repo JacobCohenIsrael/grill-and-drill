@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { EdgeKind, Neighbour, NodeInfo } from "../../src/shared/types";
+  import { isAssetKind, type EdgeKind, type Neighbour, type NodeInfo } from "../../src/shared/types";
 
   interface Props {
     item: Neighbour;
@@ -13,7 +13,16 @@
   }
   let { item, node, focus, position, anchor, files, onEnter, onLeave }: Props = $props();
 
-  const KIND: Record<EdgeKind, string> = { inherits: "Inherits", implements: "Implements", has: "Has", uses: "Uses" };
+  const KIND: Record<EdgeKind, string> = {
+    inherits: "Inherits",
+    implements: "Implements",
+    has: "Has",
+    uses: "Uses",
+    "instance of": "Instance of",
+    contains: "Contains",
+    assigns: "Assigns",
+    calls: "Calls",
+  };
   const WIDTH = 440;
 
   const from = $derived(position === "above" ? node : focus);
@@ -25,6 +34,9 @@
       : `left:${left}px; bottom:${window.innerHeight - anchor.top + 6}px; max-height:${Math.max(160, anchor.top - 24)}px`,
   );
   const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+  /** An asset's References sit in GameObjects, not members. */
+  const fromAsset = $derived(isAssetKind(from.kind));
+  const unit = $derived(fromAsset ? (from.kind === "asset" ? "asset" : "GameObject") : "member");
 </script>
 
 <div class="pop" {style} role="tooltip" onmouseenter={onEnter} onmouseleave={onLeave}>
@@ -39,12 +51,12 @@
   </div>
   <div class="weight">
     Weight {item.weight}: {item.count} {item.count === 1 ? "Reference" : "References"} in {item.members}
-    {item.members === 1 ? "member" : "members"} of {from.name}
+    {item.members === 1 ? unit : `${unit}s`} of {from.name}
   </div>
   <ul>
     {#each item.refs as [member, file, line], i (i)}
       <li title="{files[file]}:{line}">
-        <span class="member">{member}</span>
+        <span class="member">{fromAsset ? `${from.name}${member ? ` > ${member}` : ""}` : member}</span>
         <span class="where">{baseName(files[file])}:{line}</span>
       </li>
     {/each}

@@ -5,10 +5,12 @@ one type at a time. codezoom indexes your code and opens a page in your
 browser with a UML view centred on one type, the **Focus**: the types that
 depend on it (**Dependents**) above, the types it depends on
 (**Dependencies**) below. Click a box to **Drill** into it, go **Back**
-along your **Trail**, or **Jump** anywhere by name. Coding agents can ask
-the same questions through MCP.
+along your **Trail**, or **Jump** anywhere by name. In a Unity project the
+scenes, prefabs and ScriptableObject assets wired to your code are nodes
+too. Coding agents can ask the same questions through MCP.
 
-New in 1.1.0: agent access ([MCP and `--json`](#for-coding-agents)) and
+New in 1.2.0: [Unity assets as nodes](#unity-assets). 1.1.0 brought agent
+access ([MCP and `--json`](#for-coding-agents)) and
 [plain .NET C# projects](#plain-net).
 
 Overview, demo and design notes: <https://jacobcohenisrael.github.io/grill-and-drill/>
@@ -123,6 +125,51 @@ Without one they come from a list of .NET 8's types that ships with codezoom.
   Each row has a filter.
 - Click the Focus for its source (one tab per partial file); **Open in
   Rider** or a line number opens the file there. Esc closes it.
+- **Show animations** in the top bar turns the zoom off: Drill and Back
+  then cut straight to the new screen, as Jump does, and nothing on the page
+  moves on its own. It starts off when your system asks for reduced motion;
+  the choice you make in the toggle wins and is remembered in the browser.
+
+## Unity assets
+
+Scenes (`.unity`), prefabs (`.prefab`) and ScriptableObject assets
+(`.asset`) in your own folders are nodes when they are wired to your code:
+an asset stays if it has an edge to one of your types, or to another asset
+that stays. Art-only prefabs drop out. Assets in vendor or excluded folders
+that yours point at roll into that folder's foreign library, like vendor
+code. Each file is one node, drawn as a UML artifact (a page with a folded
+corner) and labelled «scene», «prefab» or the ScriptableObject's type.
+
+Edges start at the asset and never add an edge between two types, so a
+type's Dependencies stay about code and its asset users show up among its
+Dependents. Strongest first:
+
+| Edge | From | To |
+|---|---|---|
+| **Inherits** | a prefab variant | its base prefab |
+| **Instance of** | a ScriptableObject asset | its type |
+| **Contains** | a scene or prefab | the type of a component (its script), or a prefab nested in it |
+| **Assigns** | any asset | an asset set in a serialized field (overrides in a nested prefab count for the outer asset) |
+| **Calls** | a scene or prefab | the type whose method one of its UnityEvents calls |
+
+Weight is the same √(R × M): R counts components, assignments and calls, M
+the GameObjects they sit in (a ScriptableObject asset counts as one). In a
+row, assets come after code types of the same size, nearest folder first.
+
+- The Focus box of a scene or prefab lists its component types with counts,
+  yours first (`Tower ×3, Collider2D ×4`); a ScriptableObject asset's lists
+  the fields that assign assets (`enemyPrefab = Goblin.prefab`).
+- Click an asset Focus for its outline instead of YAML: the GameObject tree
+  with each one's components (yours highlighted), assigned assets and
+  UnityEvent calls, each a link to Drill to. Hovering a neighbour marks the
+  GameObjects behind its edge. **Reveal in Finder** shows the file.
+- Search finds assets by file name (`Goblin.prefab`).
+- **Show assets** in the top bar takes them out of the rows and search; the
+  choice is remembered in the browser.
+
+Not seen: references made by string (`Resources.Load`, Addressables keys),
+and materials, textures, audio, animations and animator controllers, which
+are not nodes.
 
 ## Golden walks
 
@@ -180,11 +227,13 @@ and talks over stdio.
 
 | Tool | Answers |
 |---|---|
-| `search(query, limit?)` | Nodes that match, as Jump matches them: name, full name, kind, label, and the Dependents and Dependencies counts. |
-| `screen(focus, filter?, limit?, offset?)` | The Focus box (label, public and serialized members, how many private ones) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark, namespace distance and declaring file. 25 per row by default; each row gives its total ("25 of 472"). |
-| `references(from, to, limit?, offset?)` | The References behind one edge: file:line and the member they sit in, 100 at a time. |
+| `search(query, limit?, kind?, assets?)` | Nodes that match, as Jump matches them: name, full name, kind (a type's, `scene`, `prefab`, `asset` or `library`), label, and the Dependents and Dependencies counts. `kind` narrows the results (`type` means any of your types). |
+| `screen(focus, filter?, limit?, offset?, assets?)` | The Focus box (label, public and serialized members, how many private ones; an asset's components or asset fields) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark, namespace (or folder) distance and declaring file. 25 per row by default; each row gives its total ("25 of 472"). |
+| `references(from, to, limit?, offset?)` | The References behind one edge: file:line and the member they sit in (for an asset, the GameObject path), 100 at a time. |
 
-The tools keep no Trail: to Drill, call `screen` on a neighbour. None of
+`assets: false` leaves scenes, prefabs and ScriptableObject assets out, as
+the page's Show assets toggle does. The tools keep no Trail: to Drill, call
+`screen` on a neighbour. None of
 them returns source, since the agent can open the file:line itself. They use
 the page's config, cache and file watching. Without a `codezoom.config.json`,
 every answer says that the default rules chose own code and suggests
@@ -212,6 +261,7 @@ codezoom references Tower TowerConfig --json
 | `codezoom references FROM TO` | The References behind one edge. |
 | `--json` | Answer search, screen or references as JSON. |
 | `--filter TEXT`, `--limit N`, `--offset N` | Filter and page the rows of a screen; search takes `--limit`, references `--limit` and `--offset`. |
+| `--kind KIND`, `--no-assets` | Narrow search to one kind; leave assets out of search and screen. |
 | `--port N` | First port to try (default 4777). |
 | `--config FILE` | Use a config kept outside the project. |
 | `--cache-dir DIR`, `--no-cache` | Where the index cache lives, or none. |
@@ -223,8 +273,9 @@ codezoom references Tower TowerConfig --json
 **Cache and watching.** What each file gave is cached in `.codezoom/` at the
 project root (it holds its own `.gitignore`), so a relaunch re-reads only
 changed files. While open (the page or `codezoom mcp`), codezoom watches
-`Assets/`, `Packages/` and the `.csproj` files, or in a .NET solution its
-sources, project files and restores. After a change the page shows a notice
+`Assets/`, `Packages/` and the `.csproj` files (scripts, scenes, prefabs,
+`.asset` files and their `.meta` files), or in a .NET solution its sources,
+project files and restores. After a change the page shows a notice
 instead of reshuffling the screen you are on. The cache and the config you
 save are the only files codezoom writes into a project.
 
@@ -240,8 +291,12 @@ save are the only files codezoom writes into a project.
 - Foreign libraries come from the type tables of the DLLs your projects
   reference: Unity's (from an installed editor when the project's version
   isn't installed), or the restored NuGet packages'.
-- Not seen: the type of a `var` local, extension-method calls, and wiring
-  done only in scenes, prefabs or ScriptableObject assets.
+- Unity assets are read from their text serialization (Force Text, Unity's
+  default): documents, fileIDs, the Transform tree for GameObject paths and
+  `{fileID, guid}` references. A script's GUID leads through its `.meta`
+  file to the type its file is named after, as Unity requires; a script in
+  a DLL is found by the fileID Unity derives from its name.
+- Not seen: the type of a `var` local, and extension-method calls.
 
 ## Developing
 
@@ -254,9 +309,10 @@ npm link        # puts codezoom on your PATH
 npm test        # golden walks, MCP and unit tests; no Unity or .NET SDK needed
 ```
 
-The tests index `examples/TinyTowers` (Unity) and `examples/TinyShop`
-(.NET) with committed lists of the foreign types each one uses
-(`test/fixtures`), so they pass with or without Unity or a .NET SDK. After
+The tests index `examples/TinyTowers` (Unity, with a made-up scene, prefabs
+and ScriptableObject assets written as text) and `examples/TinyShop` (.NET)
+with committed lists of the foreign types each one uses (`test/fixtures`),
+so they pass with or without Unity or a .NET SDK. After
 changing an example, refresh its list. For TinyTowers, read it from an
 installed editor: `node scripts/extract-foreign-types.mjs ../examples/TinyTowers
 test/fixtures/tinytowers-foreign-types.json`. For TinyShop, read it from a

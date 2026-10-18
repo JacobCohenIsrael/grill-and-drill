@@ -1,0 +1,49 @@
+{
+  "name": "Level 1: what the scene wires together",
+  "start": "Level1.unity",
+  "expect": {
+    "dependencies": [
+      { "name": "GameBootstrap", "edge": "contains" },
+      { "name": "BuildGrid", "edge": "contains" },
+      { "name": "WaveSpawner", "edge": "calls" },
+      { "name": "Waves.prefab", "edge": "contains" },
+      { "name": "Hud.prefab", "edge": "contains" },
+      { "name": "ArrowTower.asset", "edge": "assigns" }
+    ],
+    "absent": { "dependencies": ["Tree.prefab", "Path"] }
+  },
+  "steps": [
+    {
+      "drill": "Hud.prefab",
+      "expect": {
+        "dependencies": [
+          { "name": "HudPresenter", "edge": "contains" },
+          { "name": "ShopPanel.prefab", "edge": "contains" },
+          { "name": "FancyTween", "edge": "contains", "size": "small" },
+          { "name": "UnityEngine", "edge": "contains", "size": "small" }
+        ],
+        "dependents": [{ "name": "Level1.unity", "edge": "contains" }]
+      }
+    },
+    { "back": true, "expect": { "focus": "Level1.unity" } },
+    {
+      "drill": "Waves.prefab",
+      "expect": {
+        "dependencies": [
+          { "name": "WaveSpawner", "edge": "contains" },
+          { "name": "Path", "edge": "contains" },
+          { "name": "Wave1.asset", "edge": "assigns" }
+        ]
+      }
+    },
+    {
+      "drill": "WaveSpawner",
+      "expect": {
+        "dependents": [{ "name": "Waves.prefab", "edge": "contains" }, { "name": "Level1.unity", "edge": "calls" }, { "name": "GameBootstrap", "edge": "has" }],
+        "absent": { "dependencies": ["Wave1.asset", "Waves.prefab"] }
+      }
+    },
+    { "back": true, "expect": { "focus": "Waves.prefab" } },
+    { "back": true, "expect": { "focus": "Level1.unity" } }
+  ]
+}

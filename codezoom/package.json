@@ -1,6 +1,6 @@
 {
   "name": "codezoom",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Walk the architecture of a Unity or .NET C# project one type at a time: a UML view centred on one Focus, its Dependents above and Dependencies below, in your browser or through MCP tools for coding agents.",
   "keywords": [
     "unity",

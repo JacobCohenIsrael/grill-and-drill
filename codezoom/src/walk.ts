@@ -20,7 +20,8 @@
 //     "absent": { "dependents": [ ... ], "dependencies": [ ... ] }
 //   }
 // Listed neighbours must be in that row; absent ones must not. Edge kind
-// (inherits, implements, has, uses), size (small, medium, large) and cycle
+// (inherits, implements, has, uses; from an asset: inherits, instance of,
+// contains, assigns, calls), size (small, medium, large) and cycle
 // are checked only where given. Anything unlisted is allowed. Names match a
 // node's id, full name, shown name or simple name, the row's own nodes first.
 
@@ -61,7 +62,7 @@ export interface StepResult {
   problems: string[];
 }
 
-const EDGES: EdgeKind[] = ["inherits", "implements", "has", "uses"];
+const EDGES: EdgeKind[] = ["inherits", "implements", "has", "uses", "instance of", "contains", "assigns", "calls"];
 const SIZES: BoxSize[] = ["small", "medium", "large"];
 const ROWS: Row[] = ["dependents", "dependencies"];
 const TITLE: Record<Row, string> = { dependents: "Dependents", dependencies: "Dependencies" };

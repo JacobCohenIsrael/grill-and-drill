@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5285014eae147b5d90a80bf4be6a0551, type: 3}
+  m_Name: ArrowTowerElite
+  m_EditorClassIdentifier: TinyTowers.Gameplay::TinyTowers.Towers.TowerConfig
+  displayName: Elite Arrow Tower
+  cost: 90
+  range: 5
+  fireInterval: 0.5
+  damage: 4
+  hitsFlying: 1
+  projectile: {fileID: 1436322771543363779, guid: c57070f33af057fdb84fbb4cce3b60bb, type: 3}
+  prefab: {fileID: 1405291125615889530, guid: 887ef1efd0554b98ea48f939328cab4b, type: 3}
+  upgrade: {fileID: 0}

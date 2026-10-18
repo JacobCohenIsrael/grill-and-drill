@@ -3,11 +3,14 @@
 
 import type { MemberDecl } from "../csharp/facts.js";
 import type { OwnType } from "../csharp/resolver.js";
-import type { FocusBox, FocusMember, Meta, Neighbour, NodeInfo, Screen, Visibility } from "../shared/types.js";
+import { isAssetKind, type FocusBox, type FocusMember, type Meta, type Neighbour, type NodeInfo, type Screen, type Visibility } from "../shared/types.js";
 import type { Edge, Graph } from "./build.js";
 
-/** Distance given to foreign libraries so they sort after every own type. */
+/** Distance given to foreign libraries so they sort after every own type and asset. */
 const FOREIGN_DISTANCE = 1000;
+
+/** Code first, then assets (ADR 0007), then foreign libraries. */
+const GROUP = (n: NodeInfo) => (n.kind === "library" ? 2 : isAssetKind(n.kind) ? 1 : 0);
 
 export interface Screens {
   meta: Meta;
@@ -45,6 +48,21 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
       line: t.parts[0].line,
     });
   }
+  for (const a of graph.assets.values()) {
+    nodes.push({
+      id: a.id,
+      name: a.path.slice(a.path.lastIndexOf("/") + 1),
+      full: a.path,
+      namespace: folderOf(a.path),
+      kind: a.kind,
+      label: a.label,
+      abstract: false,
+      dependents: graph.in.get(a.id)?.size ?? 0,
+      dependencies: graph.out.get(a.id)?.size ?? 0,
+      file: fileId(a.path),
+      line: 1,
+    });
+  }
   for (const l of graph.libraries.values()) {
     nodes.push({
       id: l.id,
@@ -59,6 +77,10 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
     });
   }
   const info = new Map(nodes.map((n) => [n.id, n]));
+  // between an asset and anything else, folders stand in for namespaces
+  const folder = (n: NodeInfo) => (isAssetKind(n.kind) ? n.namespace : n.file !== undefined ? folderOf(files[n.file]) : "");
+  const distance = (focus: NodeInfo, o: NodeInfo) =>
+    o.kind === "library" ? FOREIGN_DISTANCE : isAssetKind(o.kind) || isAssetKind(focus.kind) ? folderDistance(folder(focus), folder(o)) : namespaceDistance(focus.namespace, o.namespace);
 
   const json = new Map<string, string>();
   for (const n of nodes) {
@@ -78,16 +100,24 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
             count: e.refs.length,
             members,
             weight: Math.round(Math.sqrt(e.refs.length * members) * 10) / 10,
-            distance: o.kind === "library" ? FOREIGN_DISTANCE : namespaceDistance(n.namespace, o.namespace),
+            distance: distance(n, o),
             cycle: otherRow.has(id),
             refs: e.refs.map((r) => [r.member, fileId(r.file), r.line] as [string, number, number]),
           };
         })
         // the page groups by size first (shared/weight.ts); this order holds within a size
-        .sort((a, b) => a.distance - b.distance || b.weight - a.weight || compareNames(info.get(a.id)!.name, info.get(b.id)!.name));
+        .sort(
+          (a, b) =>
+            GROUP(info.get(a.id)!) - GROUP(info.get(b.id)!) || a.distance - b.distance || b.weight - a.weight || compareNames(info.get(a.id)!.name, info.get(b.id)!.name),
+        );
     const t = graph.types.get(n.id);
+    const asset = graph.assets.get(n.id);
     const screen: Screen = {
-      focus: t ? focusBox(t, fileId) : { id: n.id, attributes: [], operations: [], hidden: 0, file: -1, line: 0, parts: [], assembly: "" },
+      focus: t
+        ? focusBox(t, fileId)
+        : asset
+          ? { id: n.id, attributes: [], operations: [], hidden: 0, file: fileId(asset.path), line: 1, parts: [], assembly: "", asset: { items: asset.box } }
+          : { id: n.id, attributes: [], operations: [], hidden: 0, file: -1, line: 0, parts: [], assembly: "" },
       dependents: row(incoming, (e) => e.from, outIds),
       dependencies: row(outgoing, (e) => e.to, inIds),
     };
@@ -102,6 +132,20 @@ export function namespaceDistance(a: string, b: string): number {
   let common = 0;
   while (common < x.length && common < y.length && x[common] === y[common]) common++;
   return x.length - common + (y.length - common);
+}
+
+/** Folder steps between two folders: up to the one both share, then down. */
+export function folderDistance(a: string, b: string): number {
+  const x = a ? a.split("/") : [];
+  const y = b ? b.split("/") : [];
+  let common = 0;
+  while (common < x.length && common < y.length && x[common] === y[common]) common++;
+  return x.length - common + (y.length - common);
+}
+
+function folderOf(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i < 0 ? "" : path.slice(0, i);
 }
 
 function compareNames(a: string, b: string): number {

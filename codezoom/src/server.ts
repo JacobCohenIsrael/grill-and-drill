@@ -10,7 +10,8 @@ import { gzipSync } from "node:zlib";
 import type { Screens } from "./graph/screens.js";
 import type { Config } from "./shared/ownRules.js";
 import type { SetupData } from "./shared/types.js";
-import { openInEditor, type Editor } from "./editor.js";
+import { openInEditor, revealInFileManager, type Editor } from "./editor.js";
+import type { AssetOutline } from "./unity/assets.js";
 
 const WEB_ROOT = fileURLToPath(new URL("../web/", import.meta.url));
 
@@ -45,12 +46,16 @@ export interface SetupHooks {
   save(config: Config): Promise<{ types: number }>;
 }
 
+/** An asset's outline (ADR 0007), from the index being served. */
+export type OutlineHook = (id: string) => AssetOutline | null;
+
 export async function startServer(
   screens: Screens,
   preferredPort: number,
   root: string,
   editor: Editor | null,
   setup: SetupHooks,
+  outline: OutlineHook = () => null,
 ): Promise<Running> {
   if (!existsSync(join(WEB_ROOT, "index.html"))) {
     throw new Error(`page not built: run "npm run build" in the codezoom folder (looked in ${WEB_ROOT})`);
@@ -88,6 +93,21 @@ export async function startServer(
         (text) => send(res, 200, TYPES[".json"], JSON.stringify({ path: file, text: text.replace(/^\uFEFF/, "") })),
         () => send(res, 404, "text/plain", "file not found"),
       );
+      return;
+    }
+    if (path === "/api/outline") {
+      const o = outline(url.searchParams.get("id") ?? "");
+      return o ? send(res, 200, TYPES[".json"], JSON.stringify(o)) : send(res, 404, "text/plain", "not an asset");
+    }
+    if (path === "/api/reveal" && req.method === "POST") {
+      // starts a program on this machine: same guard as /api/open
+      if (req.headers["x-codezoom"] !== "1") return send(res, 403, "text/plain", "forbidden");
+      readBody(req).then(async (body) => {
+        const rel = fileAt((body as { path?: unknown } | null)?.path);
+        if (!rel) return send(res, 400, "text/plain", "not an indexed file");
+        const ok = await revealInFileManager(join(root, rel));
+        send(res, ok ? 200 : 500, TYPES[".json"], JSON.stringify({ ok }));
+      });
       return;
     }
     if (path === "/api/setup" && req.method === "GET") {

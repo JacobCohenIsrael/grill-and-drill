@@ -32,8 +32,10 @@ test("indexes TinyTowers to the known totals", () => {
     ["Assembly-CSharp", "TinyTowers.Core", "TinyTowers.Editor", "TinyTowers.Gameplay", "TinyTowers.UI"],
   );
   assert.equal(s.types, 47);
-  assert.equal(s.edges, 136);
-  assert.equal(s.references, 272);
+  // 136 edges and 272 References between types; the rest start at its 13 assets (assets.test.mjs)
+  assert.equal(s.assets, 13);
+  assert.equal(s.edges, 175);
+  assert.equal(s.references, 312);
   assert.equal(s.libraries, 3);
   assert.equal(s.unresolved, 0);
 });

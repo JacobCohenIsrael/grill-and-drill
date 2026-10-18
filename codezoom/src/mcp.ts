@@ -5,16 +5,20 @@
 
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { Query, QueryError, REFERENCE_LIMIT, ROW_LIMIT, SEARCH_LIMIT } from "./query.js";
+import { Query, QueryError, REFERENCE_LIMIT, ROW_LIMIT, SEARCH_KINDS, SEARCH_LIMIT } from "./query.js";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 const INSTRUCTIONS = `codezoom answers architecture questions about this C# project from its type graph.
-Nodes are own types and foreign libraries (one node per package). Around one node, the Focus, its Screen
-has two rows: Dependents (nodes that depend on it) and Dependencies (nodes it depends on). Each edge has
-the strongest kind of its References: inherits > implements > has (a field or property) > uses. Weight is
-sqrt(R x M): R References sitting in M members of the using end; size (large, medium, small) ranks it in
-its row. Find a node with search, read its Screen with screen, then call screen on a neighbour to move
+Nodes are own types, foreign libraries (one node per package) and, in a Unity project, assets: scenes,
+prefabs and ScriptableObject assets wired to own code. Around one node, the Focus, its Screen has two rows:
+Dependents (nodes that depend on it) and Dependencies (nodes it depends on). Each edge has the strongest kind
+of its References. From a type: inherits > implements > has (a field, property or primary-constructor
+parameter) > uses. From an asset: inherits (a prefab variant's base) > instance of (a ScriptableObject
+asset's type) > contains (a component's type, or a nested prefab) > assigns (an asset set in a serialized
+field) > calls (a UnityEvent's target type). Assets never add edges between types. Weight is sqrt(R x M):
+R References sitting in M members (for an asset, GameObjects) of the using end; size (large, medium, small)
+ranks it in its row. Find a node with search, read its Screen with screen, then call screen on a neighbour to move
 on; references gives the file:line evidence behind one edge. Read the files themselves for the source.`;
 
 const TOOLS = [
@@ -26,8 +30,10 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Part of a name, or word starts." },
+        query: { type: "string", description: "Part of a name, or word starts. Assets are found by file name (Goblin.prefab)." },
         limit: { type: "integer", minimum: 1, description: `Results to return (default ${SEARCH_LIMIT}).` },
+        kind: { type: "string", enum: [...SEARCH_KINDS], description: "Only nodes of this kind: type (any own type), a type kind, scene, prefab, asset (a ScriptableObject asset) or library." },
+        assets: { type: "boolean", description: "false leaves Unity scenes, prefabs and ScriptableObject assets out." },
       },
       required: ["query"],
     },
@@ -37,7 +43,7 @@ const TOOLS = [
     name: "screen",
     title: "Show a node's Screen",
     description:
-      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark, namespace distance and declaring file. Rows are paged: each says how many it holds in total.",
+      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest; for a scene or prefab its component types, for a ScriptableObject asset its asset fields) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark, namespace (or folder) distance and declaring file. Rows are paged: each says how many it holds in total.",
     inputSchema: {
       type: "object",
       properties: {
@@ -45,6 +51,7 @@ const TOOLS = [
         filter: { type: "string", description: "Keep only neighbours whose name matches, as search matches." },
         limit: { type: "integer", minimum: 0, description: `Neighbours per row (default ${ROW_LIMIT}).` },
         offset: { type: "integer", minimum: 0, description: "Neighbours to skip in each row, for the next page." },
+        assets: { type: "boolean", description: "false leaves Unity assets out of both rows (sizes are then worked out without them)." },
       },
       required: ["focus"],
     },
@@ -54,7 +61,7 @@ const TOOLS = [
     name: "references",
     title: "List the References behind an edge",
     description:
-      "The References behind the edge from one node to another (from depends on to): each place in the source, as file:line, with the member of `from` it sits in.",
+      "The References behind the edge from one node to another (from depends on to): each place, as file:line, with the member of `from` it sits in, or for an asset the GameObject (a path like Canvas/Header/BuyButton).",
     inputSchema: {
       type: "object",
       properties: {
@@ -170,11 +177,17 @@ async function callTool(name: string, args: Record<string, unknown>, options: Mc
       return v;
     };
     const needed = (key: string) => text(key) ?? missing(key);
+    const flag = (key: string) => {
+      const v = args[key];
+      if (v === undefined || v === null) return undefined;
+      if (typeof v !== "boolean") throw new QueryError(`"${key}" must be true or false`);
+      return v;
+    };
     const answer =
       name === "search"
-        ? q.search(needed("query"), count("limit"))
+        ? q.search(needed("query"), count("limit"), { kind: text("kind"), assets: flag("assets") })
         : name === "screen"
-          ? q.screen(needed("focus"), { filter: text("filter"), limit: count("limit"), offset: count("offset") })
+          ? q.screen(needed("focus"), { filter: text("filter"), limit: count("limit"), offset: count("offset"), assets: flag("assets") })
           : q.references(needed("from"), needed("to"), { limit: count("limit"), offset: count("offset") });
     return result(JSON.stringify(answer));
   } catch (e) {

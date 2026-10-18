@@ -69,6 +69,13 @@ export class LibraryMap {
     return { key: assembly, name: assembly || basename(hintPath), hidden: false };
   }
 
+  /** The package a file under Packages/ or Library/PackageCache/ belongs to; null elsewhere. */
+  forPath(path: string): LibraryInfo | null {
+    const m = /^(?:Packages|Library\/PackageCache)\/([^/]+)\//.exec(path);
+    const pkg = m ? this.packageDirs.get(m[1]) : undefined;
+    return pkg ? { key: pkg.name, name: pkg.displayName, hidden: false } : null;
+  }
+
   /** A non-own assembly that has a .csproj: its package, or the folder its files sit in. */
   forProject(p: Csproj): LibraryInfo {
     const fromAsmdef = this.asmdefToPackage.get(p.assembly);

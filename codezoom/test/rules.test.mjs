@@ -63,3 +63,14 @@ test("one #if configuration keeps line numbers", () => {
   assert.deepEqual(configure(text, new Set(["Y"])).split("\n"), ["", "", "", "b\r", "", "", "", "d"]);
   assert.deepEqual(configure(text, new Set(["Y", "Z"])).split("\n"), ["", "", "", "", "", "c\r", "", "d"]);
 });
+
+test("Show animations: on by default, off when the system asks for reduced motion, the reader's choice wins", async () => {
+  const { animationsOn, storedFlag } = await import("../dist/server/shared/prefs.js");
+  assert.equal(animationsOn(null, false), true);
+  assert.equal(animationsOn(null, true), false, "prefers-reduced-motion: reduce starts it off");
+  assert.equal(animationsOn("1", true), true, "turned on by the reader despite the system");
+  assert.equal(animationsOn("0", false), false, "turned off by the reader");
+  assert.equal(storedFlag(null, true), true, "Show assets starts on");
+  assert.equal(storedFlag("0", true), false);
+  assert.equal(storedFlag("garbage", false), false);
+});

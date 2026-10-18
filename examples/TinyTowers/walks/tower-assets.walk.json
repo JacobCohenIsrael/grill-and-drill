@@ -1,0 +1,42 @@
+{
+  "name": "Arrow towers: a prefab, its variant and their configs",
+  "start": "ArrowTowerElite.prefab",
+  "expect": {
+    "dependencies": [
+      { "name": "ArrowTower.prefab", "edge": "inherits", "size": "medium" },
+      { "name": "ArrowTowerElite.asset", "edge": "assigns", "cycle": true }
+    ],
+    "absent": { "dependencies": ["ArrowTower"] }
+  },
+  "steps": [
+    {
+      "drill": "ArrowTower.prefab",
+      "expect": {
+        "dependents": [{ "name": "ArrowTowerElite.prefab", "edge": "inherits" }, { "name": "ArrowTower.asset", "edge": "assigns", "cycle": true }],
+        "dependencies": [{ "name": "ArrowTower", "edge": "contains" }, { "name": "ArrowTower.asset", "edge": "assigns", "cycle": true }]
+      }
+    },
+    {
+      "drill": "ArrowTower.asset",
+      "expect": {
+        "dependencies": [
+          { "name": "TowerConfig", "edge": "instance of" },
+          { "name": "Arrow.prefab", "edge": "assigns" },
+          { "name": "ArrowTower.prefab", "edge": "assigns", "cycle": true },
+          { "name": "ArrowTowerElite.asset", "edge": "assigns" }
+        ],
+        "dependents": [{ "name": "ArrowTower.prefab", "edge": "assigns" }, { "name": "Level1.unity", "edge": "assigns" }]
+      }
+    },
+    {
+      "drill": "Arrow.prefab",
+      "expect": {
+        "dependencies": [{ "name": "Projectile", "edge": "contains" }],
+        "dependents": ["ArrowTower.asset", "ArrowTowerElite.asset"]
+      }
+    },
+    { "back": true, "expect": { "focus": "ArrowTower.asset" } },
+    { "back": true, "expect": { "focus": "ArrowTower.prefab" } },
+    { "back": true, "expect": { "focus": "ArrowTowerElite.prefab" } }
+  ]
+}

@@ -5,7 +5,7 @@
 import type { Index } from "./indexer.js";
 import type { Screens } from "./graph/screens.js";
 import { findFocus, matchesName, search as searchNodes } from "./shared/search.js";
-import type { FocusMember, Neighbour, NodeInfo, Screen } from "./shared/types.js";
+import { isAssetKind, type FocusMember, type Neighbour, type NodeInfo, type Screen } from "./shared/types.js";
 import { orderBySize, sizeRow, type BoxSize, type Row } from "./shared/weight.js";
 import { CONFIG_FILE } from "./shared/ownRules.js";
 
@@ -41,7 +41,7 @@ export interface RowItem extends NodeSummary {
   memberCount: number;
   /** The node is in both rows. */
   cycle: boolean;
-  /** Namespace steps to the Focus; null for a foreign library. */
+  /** Namespace steps to the Focus (folder steps when an asset is involved); null for a foreign library. */
   namespaceDistance: number | null;
   /** Where the node is declared, path:line; null for a foreign library. */
   file: string | null;
@@ -69,6 +69,10 @@ export interface ScreenAnswer {
     operations: string[];
     /** Members neither public nor serialized, not listed. */
     private: number;
+    /** A scene or prefab: its component types with counts, own types first. */
+    components?: string[];
+    /** A ScriptableObject asset: its fields that assign assets. */
+    fields?: string[];
   };
   dependents: RowAnswer;
   dependencies: RowAnswer;
@@ -84,7 +88,8 @@ export interface ReferencesAnswer {
   memberCount: number;
   offset: number;
   shown: number;
-  references: { at: string; member: string }[];
+  /** From a type: the member each sits in. From an asset: the GameObject (null for a ScriptableObject). */
+  references: ({ at: string; member: string } | { at: string; gameObject: string | null })[];
   notes: string[];
 }
 
@@ -92,7 +97,12 @@ export interface Page {
   filter?: string;
   limit?: number;
   offset?: number;
+  /** false leaves Unity assets out, as the page's "Show assets" toggle does. */
+  assets?: boolean;
 }
+
+/** What `search` can be narrowed to: a node kind, or "type" for any own type. */
+export const SEARCH_KINDS = ["type", "class", "struct", "interface", "enum", "record", "delegate", "scene", "prefab", "asset", "library"] as const;
 
 /** What every answer should say about how the index was made. */
 export function indexNotes(index: Index): string[] {
@@ -119,9 +129,13 @@ export class Query {
   }
 
   /** Jump's matcher: best first. */
-  search(query: string, limit = SEARCH_LIMIT): SearchAnswer {
-    if (!query.trim()) throw new QueryError("search needs a query: part of a type name, or word starts like CA for CampaignApplication");
-    const all = searchNodes(this.screens.meta.nodes, query, Infinity);
+  search(query: string, limit = SEARCH_LIMIT, options: { kind?: string; assets?: boolean } = {}): SearchAnswer {
+    if (!query.trim()) throw new QueryError("search needs a query: part of a name, or word starts like CA for CampaignApplication");
+    const { kind, assets = true } = options;
+    if (kind !== undefined && !(SEARCH_KINDS as readonly string[]).includes(kind)) throw new QueryError(`kind must be one of ${SEARCH_KINDS.join(", ")}`);
+    const keep = (n: NodeInfo) =>
+      (assets || !isAssetKind(n.kind)) && (!kind || (kind === "type" ? n.kind !== "library" && !isAssetKind(n.kind) : n.kind === kind || (kind === "record" && n.kind === "record struct")));
+    const all = searchNodes(this.screens.meta.nodes.filter(keep), query, Infinity);
     return {
       query,
       total: all.length,
@@ -136,17 +150,20 @@ export class Query {
     const screen = this.screenOf(node.id);
     const box = screen.focus;
     const lib = node.kind === "library";
+    const asset = isAssetKind(node.kind);
+    const contents = (box.asset?.items ?? []).map((i) => i.text);
     return {
       focus: {
         ...summary(node),
         namespace: node.namespace,
         abstract: node.abstract,
-        assembly: lib ? null : box.assembly,
+        assembly: lib || asset ? null : box.assembly,
         file: lib ? null : this.at(box.file, box.line),
         parts: box.parts.length > 1 ? box.parts.map((p) => this.at(p.file, p.line)) : [],
         attributes: box.attributes.map(memberLine),
         operations: box.operations.map(memberLine),
         private: box.hidden,
+        ...(asset ? (node.kind === "asset" ? { fields: contents } : { components: contents }) : {}),
       },
       dependents: this.row(screen, "dependents", page),
       dependencies: this.row(screen, "dependencies", page),
@@ -167,6 +184,7 @@ export class Query {
     }
     const offset = Math.max(0, Math.floor(page.offset ?? 0));
     const refs = edge.refs.slice(offset, offset + clamp(page.limit, REFERENCE_LIMIT));
+    const fromAsset = isAssetKind(a.kind);
     return {
       from: summary(a),
       to: summary(b),
@@ -176,7 +194,7 @@ export class Query {
       memberCount: edge.members,
       offset,
       shown: refs.length,
-      references: refs.map(([member, file, line]) => ({ at: this.at(file, line), member })),
+      references: refs.map(([member, file, line]) => (fromAsset ? { at: this.at(file, line), gameObject: member || null } : { at: this.at(file, line), member })),
       notes: this.notes,
     };
   }
@@ -201,7 +219,8 @@ export class Query {
 
   /** One row as the page orders it (sizes from the whole row, before the filter), then filtered and paged. */
   private row(screen: Screen, row: Row, page: Page): RowAnswer {
-    const items = screen[row];
+    // without assets the row is sized as if they were never there
+    const items = page.assets === false ? screen[row].filter((n) => !isAssetKind(this.nodes.get(n.id)!.kind)) : screen[row];
     const sizes = sizeRow(items, row, (id) => this.nodes.get(id)?.kind === "library");
     const ordered = orderBySize(
       items.map((n, i) => ({ n, size: sizes[i] })),
@@ -262,7 +281,7 @@ export function screenText(a: ScreenAnswer): string {
   const f = a.focus;
   const lines = [`${f.name} «${f.label}»${f.abstract ? " abstract" : ""} ${f.kind}  ${f.full}${f.assembly ? `  (${f.assembly})` : ""}`];
   if (f.file) lines.push(`  ${f.file}${f.parts.length ? ` (+${f.parts.length - 1} more parts)` : ""}`);
-  for (const m of [...f.attributes, ...f.operations]) lines.push(`  ${m}`);
+  for (const m of [...f.attributes, ...f.operations, ...(f.components ?? []), ...(f.fields ?? [])]) lines.push(`  ${m}`);
   if (f.private) lines.push(`  +${f.private} private`);
   for (const [title, row] of [["Dependents", a.dependents], ["Dependencies", a.dependencies]] as const) {
     const range = row.shown ? `${row.offset + 1}-${row.offset + row.shown} of ${row.matching}` : row.matching ? `none of ${row.matching}` : "none";
@@ -270,7 +289,7 @@ export function screenText(a: ScreenAnswer): string {
     const w = Math.max(0, ...row.items.map((n) => n.name.length));
     for (const n of row.items) {
       const weight = `W ${n.weight} (R ${n.referenceCount}, M ${n.memberCount})`;
-      lines.push(`  ${n.size.padEnd(6)}  ${n.name.padEnd(w)}  ${n.edge.padEnd(10)}  ${weight.padEnd(20)}${n.cycle ? "  cycle" : ""}${n.file ? `  ${n.file}` : ""}`);
+      lines.push(`  ${n.size.padEnd(6)}  ${n.name.padEnd(w)}  ${n.edge.padEnd(11)}  ${weight.padEnd(20)}${n.cycle ? "  cycle" : ""}${n.file ? `  ${n.file}` : ""}`);
     }
   }
   return withNotes(lines, a.notes);
@@ -280,7 +299,7 @@ export function referencesText(a: ReferencesAnswer): string {
   const lines = [`${a.from.name} ${a.edge} ${a.to.name}: Weight ${a.weight} (R ${a.referenceCount}, M ${a.memberCount})`];
   if (a.shown < a.referenceCount) lines[0] += `, showing ${a.shown ? `${a.offset + 1}-${a.offset + a.shown}` : "none"}`;
   const w = Math.max(0, ...a.references.map((r) => r.at.length));
-  for (const r of a.references) lines.push(`  ${r.at.padEnd(w)}  ${r.member}`);
+  for (const r of a.references) lines.push(`  ${r.at.padEnd(w)}  ${"member" in r ? r.member : (r.gameObject ?? "")}`);
   return withNotes(lines, a.notes);
 }
 

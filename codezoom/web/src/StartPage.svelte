@@ -1,18 +1,19 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { Meta } from "../../src/shared/types";
+  import type { NodeInfo } from "../../src/shared/types";
   import Search from "./Search.svelte";
 
   interface Props {
-    meta: Meta;
+    /** The nodes search and the list offer: without assets when they are hidden. */
+    nodes: NodeInfo[];
     query: string;
     onJump: (id: string) => void;
   }
-  let { meta, query, onJump }: Props = $props();
+  let { nodes, query, onJump }: Props = $props();
   let q = $state(untrack(() => query));
 
   const top = $derived(
-    meta.nodes
+    nodes
       .filter((n) => n.kind !== "library")
       .sort((a, b) => b.dependents - a.dependents)
       .slice(0, 24),
@@ -21,9 +22,9 @@
 
 <main>
   <h1>Pick a first Focus</h1>
-  <Search nodes={meta.nodes} {onJump} large bind:query={q} />
+  <Search {nodes} {onJump} large bind:query={q} />
   {#if !q.trim()}
-    <h2>Most depended-on types <span>(Dependents)</span></h2>
+    <h2>Most depended-on <span>(Dependents)</span></h2>
     <ol>
       {#each top as n (n.id)}
         <li>

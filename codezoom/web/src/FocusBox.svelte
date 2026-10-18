@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { FocusBox, FocusMember, NodeInfo } from "../../src/shared/types";
+  import { isAssetKind, type FocusBox, type FocusMember, type NodeInfo } from "../../src/shared/types";
   import { FONT_CODE, FONT_UI, fitText, textWidth } from "./measure";
 
   interface Props {
@@ -17,6 +17,10 @@
   const PAD = 12;
   const HEADER = 62;
   const lib = $derived(node.kind === "library");
+  const asset = $derived(isAssetKind(node.kind));
+  /** A scene's or prefab's component types, or a ScriptableObject asset's asset fields. */
+  const items = $derived(box.asset?.items ?? []);
+  const FOLD = 14;
 
   const lineText = (m: FocusMember) => `${m.vis} ${m.event ? "«event» " : ""}${m.text}`;
   const width = $derived.by(() => {
@@ -24,6 +28,7 @@
       textWidth(node.name, `600 15px ${FONT_UI}`),
       textWidth(node.namespace, `11px ${FONT_UI}`),
       ...[...box.attributes, ...box.operations].map((m) => textWidth(lineText(m), CODE) + (m.serialized ? 70 : 0)),
+      ...items.map((i) => textWidth(i.text, CODE)),
     );
     return Math.round(Math.min(Math.max(natural + PAD * 2, 260), 760));
   });
@@ -32,7 +37,7 @@
   const attrTop = HEADER;
   const opTop = $derived(attrTop + (box.attributes.length ? box.attributes.length * LINE + 10 : 10));
   const footTop = $derived(opTop + (box.operations.length ? box.operations.length * LINE + 10 : 10));
-  const height = $derived(lib ? HEADER + 34 : footTop + (box.hidden ? 24 : 4));
+  const height = $derived(lib ? HEADER + 34 : asset ? HEADER + 10 + Math.max(1, items.length) * LINE + 4 : footTop + (box.hidden ? 24 : 4));
   const where = $derived(box.file >= 0 ? `${files[box.file]}:${box.line}` : "");
 </script>
 
@@ -40,19 +45,31 @@
   class="focus"
   bind:this={boxEl}
   style:width="{width}px"
-  title={lib ? node.full : `${node.full}\n${where}\n${box.assembly}\nClick for the source`}
+  title={lib ? node.full : asset ? `${node.full}\nClick for its outline` : `${node.full}\n${where}\n${box.assembly}\nClick for the source`}
   role="button"
   tabindex="0"
   onclick={() => onOpenSource?.()}
   onkeydown={(e) => e.key === "Enter" && onOpenSource?.()}
 >
   <svg {width} {height} role="img" aria-label="Focus: {node.full}">
-    <rect class="frame" class:lib x="0.5" y="0.5" width={width - 1} height={height - 1} rx={lib ? 22 : 3} />
+    <rect class="frame" class:lib x="0.5" y="0.5" width={width - 1} height={height - 1} rx={lib ? 22 : asset ? 0 : 3} />
+    {#if asset}
+      <path class="corner" d="M{width - FOLD},0 L{width},{FOLD} L{width},0 Z" />
+      <path class="fold" d="M{width - FOLD - 0.5},0.5 V{FOLD} H{width - 0.5} M{width - FOLD - 0.5},0.5 L{width - 0.5},{FOLD}" />
+    {/if}
     <text class="label" x={width / 2} y="18">«{node.label}»</text>
     <text class="name" class:abstract={node.abstract} x={width / 2} y="38">{fitText(node.name, `600 15px ${FONT_UI}`, maxText)}</text>
     <text class="ns" x={width / 2} y="53">{fitText(lib ? "foreign library" : node.namespace || "(global namespace)", `11px ${FONT_UI}`, maxText)}</text>
     {#if lib}
       <text class="note" x={width / 2} y={HEADER + 18}>Only its Dependents are shown</text>
+    {:else if asset}
+      <line x1="0" x2={width} y1={HEADER} y2={HEADER} />
+      {#each items as item, i (i)}
+        <text class="member" class:own={item.own} x={PAD} y={HEADER + 5 + LINE * i + 13}>{fitText(item.text, CODE, maxText)}</text>
+      {/each}
+      {#if !items.length}
+        <text class="note" x={width / 2} y={HEADER + 22}>{node.kind === "asset" ? "No asset fields" : "No components"}</text>
+      {/if}
     {:else}
       <line x1="0" x2={width} y1={attrTop} y2={attrTop} />
       {#each box.attributes as m, i (i)}
@@ -132,6 +149,19 @@
   }
   .member.static {
     text-decoration: underline;
+  }
+  .member.own {
+    font-weight: 600;
+  }
+  .corner {
+    fill: var(--bg);
+    stroke: var(--bg);
+    stroke-width: 2;
+  }
+  .fold {
+    fill: none;
+    stroke: var(--box-stroke);
+    stroke-width: 1.5;
   }
   .tag {
     font-size: 10px;

@@ -5,14 +5,23 @@
   interface Props {
     meta: Meta;
     nodes: Map<string, NodeInfo>;
+    /** What the search box offers: without assets when they are hidden. */
+    searchNodes: NodeInfo[];
     trail: string[];
     lastMove: { kind: string; ms: number; motion: string; fps: number | null; longestFrameMs: number | null } | null;
     onJump: (id: string) => void;
     onTrail: (index: number) => void;
     /** Opens the setup page; `onlyNew` for the assemblies the config has not reviewed. */
     onSetup: (onlyNew: boolean) => void;
+    /** The "Show assets" toggle's state; null when the project has no assets. */
+    showAssets: boolean | null;
+    onShowAssets: (on: boolean) => void;
+    /** Off: Drill and Back cut like Jump, nothing moves on its own. */
+    showAnimations: boolean;
+    onShowAnimations: (on: boolean) => void;
   }
-  let { meta, nodes, trail, lastMove, onJump, onTrail, onSetup }: Props = $props();
+  let { meta, nodes, searchNodes, trail, lastMove, onJump, onTrail, onSetup, showAssets, onShowAssets, showAnimations, onShowAnimations }: Props =
+    $props();
   const newCount = $derived(meta.newAssemblies?.length ?? 0);
   const unit = (n: number) => (meta.kind === "dotnet" ? (n === 1 ? "project" : "projects") : n === 1 ? "assembly" : "assemblies");
 
@@ -51,8 +60,18 @@
   {#if newCount}
     <button class="setup new" onclick={() => onSetup(true)} title={meta.newAssemblies?.join(", ")}>{newCount} new {unit(newCount)}: review</button>
   {/if}
+  {#if showAssets !== null}
+    <label class="toggle" title="Scenes, prefabs and ScriptableObject assets wired to your code">
+      <input type="checkbox" checked={showAssets} onchange={(e) => onShowAssets(e.currentTarget.checked)} />
+      Show assets
+    </label>
+  {/if}
+  <label class="toggle" title="Zoom into a box on Drill and out on Back; off, every move is a cut">
+    <input type="checkbox" checked={showAnimations} onchange={(e) => onShowAnimations(e.currentTarget.checked)} />
+    Show animations
+  </label>
   <button class="setup" onclick={() => onSetup(false)} title="Choose which {unit(2)} are your code">Setup</button>
-  <Search nodes={meta.nodes} {onJump} />
+  <Search nodes={searchNodes} {onJump} />
 </header>
 
 <style>
@@ -119,6 +138,15 @@
   }
   .setup.new {
     background: var(--accent-soft);
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--muted);
+    cursor: pointer;
   }
   .index-note {
     max-width: 440px;
