@@ -3,8 +3,9 @@
 Home of **codezoom**, a tool for walking an unfamiliar C# codebase (a Unity
 project or a .NET solution) one type at a time. Pick a type and codezoom
 draws a UML diagram of what it uses and what uses it. Click any neighbour to
-make it the centre, and step Back along your trail. Coding agents can ask the
-same questions through MCP.
+make it the centre, and step Back along your trail. In a Unity project the
+scenes, prefabs and ScriptableObject assets wired to your code are nodes too.
+Coding agents can ask the same questions through MCP.
 
 **[Watch the 55-second demo and read the overview →](https://jacobcohenisrael.github.io/grill-and-drill/)**
 
@@ -44,7 +45,7 @@ from source.
 | Path | What it is |
 |---|---|
 | [codezoom/](codezoom/) | The tool: a Node/TypeScript indexer with a Svelte page in the browser |
-| [examples/TinyTowers/](examples/TinyTowers/) | A small made-up Unity project for demos |
+| [examples/TinyTowers/](examples/TinyTowers/) | A small made-up Unity project for demos, with a scene, prefabs and ScriptableObject assets |
 | [examples/TinyShop/](examples/TinyShop/) | A small made-up .NET solution for demos |
 | [GLOSSARY.md](GLOSSARY.md) | The project's terms: Focus, Drill, Back, Jump, Weight, … |
 | [docs/adr/](docs/adr/) | Decisions that would be hard to undo, and why |
@@ -53,10 +54,12 @@ from source.
 
 ## Status
 
-codezoom 1.1.0 is [on npm](https://www.npmjs.com/package/codezoom). It adds
-agent access (an MCP server and `--json` output) and plain .NET C# projects.
-The last v1 step is still a sign-off by hand: golden walks through a large
-real project.
+codezoom 1.2.0 is [on npm](https://www.npmjs.com/package/codezoom). It adds
+Unity assets as nodes: scenes, prefabs and ScriptableObject assets, with the
+components, assignments and UnityEvent calls that wire them to code. 1.1.0
+added agent access (an MCP server and `--json` output) and plain .NET C#
+projects. The last v1 step is still a sign-off by hand: golden walks through
+a large real project.
 
 ## Credits
 

@@ -7,19 +7,25 @@ architecture.
 ## The graph
 
 **Node**:
-Anything that can be the Focus: a type in own code, or a foreign library.
+Anything that can be the Focus: a type in own code, an asset, or a foreign
+library.
 _Avoid_: Element, symbol, class, box
 
 **Own code**:
 The code the user has marked as theirs, chosen by assembly.
 _Avoid_: Project code, first-party code, source
 
+**Asset**:
+A scene, prefab or ScriptableObject asset in the user's own folders that is
+wired to own code.
+_Avoid_: Resource, file, object
+
 **Foreign library**:
 A body of code outside own code that own code uses, shown as one node.
 _Avoid_: Dependency, package, external, third-party
 
 **Reference**:
-One place in the source where one type mentions another.
+One place in the source, or in an asset, where one node mentions another.
 _Avoid_: Usage, mention, occurrence
 
 **Edge**:
@@ -29,15 +35,18 @@ _Avoid_: Link, relation, arrow
 
 **Weight**:
 How heavily the using end of an edge relies on the other end, from how many
-References it makes and how many of its own members those References sit in.
+References it makes and how many of its own members (for an asset, its
+GameObjects) those References sit in.
 _Avoid_: Count, strength, usage, frequency
 
 ## Edge kinds
 
-Strongest first.
+Strongest first. Edges from a type use Inherits, Implements, Has and Uses;
+edges from an asset use Inherits, Instance of, Contains, Assigns and Calls.
 
 **Inherits**:
-The edge kind from a type to its base class.
+The edge kind from a type to its base class, or from a prefab variant to its
+base prefab.
 _Avoid_: Extends, inheritance, generalization
 
 **Implements**:
@@ -52,6 +61,25 @@ _Avoid_: Association, aggregation, composition, owns
 **Uses**:
 The edge kind for any other Reference from one type to another.
 _Avoid_: Dependency, calls, association
+
+**Instance of**:
+The edge kind from a ScriptableObject asset to its type.
+_Avoid_: Is a, type of
+
+**Contains**:
+The edge kind from a scene or prefab to the type of a component on one of
+its GameObjects, or to a prefab nested in it.
+_Avoid_: Holds, includes, has
+
+**Assigns**:
+The edge kind from an asset to another asset set in one of its serialized
+fields.
+_Avoid_: References, links, wires
+
+**Calls**:
+The edge kind from a scene or prefab to a type whose method one of its
+UnityEvents calls.
+_Avoid_: Invokes, triggers, uses
 
 ## Navigation
 
@@ -99,5 +127,6 @@ _Avoid_: Callees, uses, downstream, outgoing
 
 **Namespace distance**:
 The number of namespace steps between a node and the Focus: up to the
-namespace both share, then down to the node's own.
+namespace both share, then down to the node's own. Between assets, folders
+stand in for namespaces.
 _Avoid_: Closeness, proximity
