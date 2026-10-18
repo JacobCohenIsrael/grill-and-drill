@@ -1,0 +1,43 @@
+# Type-checks, tests and packs codezoom on every push to main and every pull
+# request. The tests read Unity and .NET type names from bundled lists, so the
+# runners need neither installed.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is left out until build:server stops using `rm -rf`.
+        os: [ubuntu-latest, macos-latest]
+        # 22 resolves to 22.23.3 or newer, the package's minimum.
+        node: [22, 24]
+    defaults:
+      run:
+        working-directory: codezoom
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: codezoom/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - name: Pack the npm tarball
+        run: npm pack --dry-run
