@@ -37,6 +37,8 @@ jobs:
           cache: npm
           cache-dependency-path: codezoom/package-lock.json
       - run: npm ci
+      # Builds the web page too: the tests start the server, which serves it.
+      - run: npm run build
       - run: npm run check
       - run: npm test
       - name: Pack the npm tarball
