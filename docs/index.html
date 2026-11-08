@@ -156,11 +156,11 @@
 <div class="wrap">
 
   <header class="hero col">
-    <p class="eyebrow">grill-and-drill · codezoom 1.2.0 on npm</p>
+    <p class="eyebrow">grill-and-drill · codezoom 1.3.0 on npm</p>
     <h1>code<span>zoom</span></h1>
-    <p class="lede">A tool for walking an unfamiliar C# codebase, a Unity project or a .NET solution, one type at a time. You pick a type, and codezoom draws a UML diagram of everything connected to it. Click any neighbour and it becomes the centre. That is the whole loop, and it is how you learn the architecture. Since 1.2.0, a Unity project's scenes, prefabs and ScriptableObject assets are nodes too, and since 1.1.0, coding agents can ask the same questions through MCP.</p>
+    <p class="lede">A tool for walking an unfamiliar C# codebase, a Unity project or a .NET solution, one type at a time. You pick a type, and codezoom draws a UML diagram of everything connected to it. Click any neighbour and it becomes the centre. That is the whole loop, and it is how you learn the architecture. Since 1.3.0, hints point at code that may break a design principle, starting with Tangles and Cycles. Since 1.2.0, a Unity project's scenes, prefabs and ScriptableObject assets are nodes too, and since 1.1.0, coding agents can ask the same questions through MCP.</p>
     <div class="facts">
-      <span>Unity and .NET C#</span><span>scenes and prefabs as nodes</span><span>runs in the browser</span><span>no Unity install needed to read code</span><span>moves draw in under 100 ms</span><span>MCP tools for agents</span><span>npx codezoom</span>
+      <span>Unity and .NET C#</span><span>scenes and prefabs as nodes</span><span>Tangle and Cycle hints</span><span>runs in the browser</span><span>no Unity install needed to read code</span><span>moves draw in under 100 ms</span><span>MCP tools for agents</span><span>npx codezoom</span>
     </div>
   </header>
 
@@ -195,6 +195,7 @@
         <li><b>Boxes are sized by Weight</b><span>Weight is how heavily the using type relies on the other: the References it makes, and how many of its members make them. The biggest boxes come first, so the main dependency stands out at a glance. Hover a box to see the count and the exact lines.</span></li>
         <li><b>UML edges, simplified to four kinds</b><span>An edge stands for every Reference between two types and is drawn as the strongest kind among them.</span></li>
         <li><b>Libraries are single nodes</b><span>UnityEngine, a package or a vendor SDK each collapse into one rounded box, so your own types aren't buried under <code>Transform</code> and <code>Vector3</code>.</span></li>
+        <li><b>Hints, not verdicts</b><span>A Tangle is a group of types that can each reach every other through their Dependencies. The Focus says which Tangle it is in, ⟲ marks the neighbours on the shortest Cycles through it, and hovering one follows that Cycle hop by hop. <code>codezoom hints</code> lists every Tangle, biggest first (ADR 0008).</span></li>
         <li><b>Source one click away</b><span>Click the Focus to read its code. Hovering a neighbour highlights its References, and "Open in Rider" jumps to the line.</span></li>
       </ul>
       <figure>
@@ -259,7 +260,7 @@
     <div class="split">
       <figure>
         <img src="demo/drill.jpg" alt="codezoom after drilling from Tower to EnemyRegistry to Enemy, with a breadcrumb trail at the top and EnemyRegistry marked as the previous Focus" loading="lazy">
-        <figcaption>Two Drills in: Tower › EnemyRegistry › Enemy. The ↩ box is the previous Focus. ⟲ marks a cycle: Enemy and EnemyRegistry use each other.</figcaption>
+        <figcaption>Two Drills in: Tower › EnemyRegistry › Enemy. The ↩ box is the previous Focus. ⟲ marks a neighbour on a shortest Cycle through the Focus: Enemy and EnemyRegistry use each other.</figcaption>
       </figure>
       <figure>
         <img src="demo/source.jpg" alt="codezoom with the WaveSpawner source panel open, lines 26 and 29 highlighted because the EventBus neighbour is hovered" loading="lazy">
@@ -344,6 +345,7 @@
         <li><span class="mono">2f114e5</span>Golden walks and tests; published to npm as 1.0.0</li>
         <li><span class="mono">1.1.0</span>Agent access (MCP and <code>--json</code>) and plain .NET C# projects</li>
         <li><span class="mono">1.2.0</span>Unity assets as nodes: scenes, prefabs and ScriptableObject assets</li>
+        <li><span class="mono">1.3.0</span>Hints: Tangles and the shortest Cycles through each Focus</li>
       </ol>
     </div>
   </section>
@@ -351,7 +353,7 @@
   <section>
     <header class="col">
       <p class="eyebrow">Where it stands</p>
-      <h2>Released as 1.2.0, with one sign-off to go</h2>
+      <h2>Released as 1.3.0, with one sign-off to go</h2>
     </header>
     <div class="status">
       <div>
@@ -362,18 +364,19 @@
           <li>Source panel with Open in Rider</li>
           <li>Per-file cache and live re-indexing</li>
           <li>Setup wizard for choosing own code</li>
-          <li>Golden walks: <code>codezoom walk</code> replays them, and 57 tests run before every publish</li>
-          <li>Agent access: <code>codezoom mcp</code> serves search, screen and references, and <code>--json</code> gives the same answers in a shell</li>
+          <li>Golden walks: <code>codezoom walk</code> replays them, and 68 tests run before every publish</li>
+          <li>Agent access: <code>codezoom mcp</code> serves search, screen, references and hints, and <code>--json</code> gives the same answers in a shell</li>
           <li>Plain .NET C# solutions: projects from the <code>.sln</code>, one node per NuGet package</li>
           <li>Unity assets as nodes: Contains, Assigns, Calls, Instance of and prefab variants, with an outline of each asset</li>
-          <li>Published to npm as <a href="https://www.npmjs.com/package/codezoom">codezoom 1.2.0</a></li>
+          <li>Hints: the Focus's Tangle, ⟲ on the shortest Cycles through it, and a project-wide list of Tangles</li>
+          <li>Published to npm as <a href="https://www.npmjs.com/package/codezoom">codezoom 1.3.0</a></li>
         </ul>
       </div>
       <div>
         <h3>Still open</h3>
         <ul>
           <li>The "golden walks" sign-off: about five Trails through a large real project, checked by hand</li>
-          <li>Choosing what follows 1.2.0: TypeScript projects, quality colouring, or a precise mode with Roslyn</li>
+          <li>Next: Node/TypeScript projects (1.4.0), then hints that need more from the reader, Bypassed interface and Type switch (ADR 0008)</li>
         </ul>
       </div>
       <div>
