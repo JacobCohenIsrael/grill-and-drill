@@ -130,3 +130,30 @@ The number of namespace steps between a node and the Focus: up to the
 namespace both share, then down to the node's own. Between assets, folders
 stand in for namespaces.
 _Avoid_: Closeness, proximity
+
+## Hints
+
+**Hint**:
+A mark on a node that points the reader at evidence that the code around it
+may break a design principle, for the reader to judge.
+_Avoid_: Smell, finding, warning, violation, issue
+
+**Cycle**:
+A way from a node through its Dependencies back to itself. As a Hint, it
+marks the neighbours on the shortest Cycles through the Focus.
+_Avoid_: Loop, circular dependency, circle
+
+**Tangle**:
+A group of two or more nodes in which each can reach every other through
+Dependencies.
+_Avoid_: Cluster, knot, SCC, component, cycle group
+
+**Bypassed interface**:
+An edge on which a type holds an own class in a field or property although
+that class implements an own interface.
+_Avoid_: DIP violation, concrete dependency
+
+**Type switch**:
+A member that tests or casts against two or more own subtypes of one own
+base type.
+_Avoid_: Instanceof chain, downcast, OCP violation
