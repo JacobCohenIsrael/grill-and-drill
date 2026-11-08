@@ -171,6 +171,25 @@ Not seen: references made by string (`Resources.Load`, Addressables keys),
 and materials, textures, audio, animations and animator controllers, which
 are not nodes.
 
+## Hints
+
+Hints point you at code that may break a design principle. They are
+evidence to look at, not verdicts: each is a fixed rule, the same for every
+project.
+
+- A **Tangle** is a group of nodes that can each reach every other through
+  their Dependencies. When the Focus is in one, its box says so
+  ("⟲ Tangle of 4"), and the start page lists every Tangle, biggest first.
+- **⟲** on a box marks a neighbour on the shortest **Cycles** through the
+  Focus: every node in both rows or, when there is none, the next
+  Dependency and the previous Dependent on the shortest longer Cycle. Hover
+  the box to follow that Cycle hop by hop, each hop with its first Reference.
+- Foreign libraries never take part. Assets do: a prefab and a
+  ScriptableObject asset that each assign the other form a Tangle.
+
+`codezoom hints` lists every node in a Tangle, biggest Tangle first, and
+within one the nodes with the most edges inside it.
+
 ## Golden walks
 
 A golden walk is a written-down sequence of moves through a project you
@@ -186,6 +205,7 @@ codezoom walk walks/*.walk.json
   "name": "Towers and their config",
   "start": "TinyTowers.Towers.Tower",
   "expect": {
+    "tangle": 2,
     "dependents": ["BuildGrid", { "name": "TowerConfig", "cycle": true }],
     "dependencies": [
       { "name": "ITargetable", "edge": "has", "size": "large" },
@@ -207,14 +227,16 @@ codezoom walk walks/*.walk.json
   it lands on.
 - Listed neighbours must be in that row; `absent` ones must not. Edge kind
   (`inherits`, `implements`, `has`, `uses`), `size` (`small`, `medium`,
-  `large`) and `cycle` are checked only where given. Anything unlisted is
-  allowed. Names match a node's full name, shown name or simple name.
+  `large`), `cycle` (on a shortest Cycle through the Focus) and the Focus's
+  `tangle` size (`0` for none) are checked only where given. Anything
+  unlisted is allowed. Names match a node's full name, shown name or simple
+  name.
 - It prints a line per screen with what differs, and exits 0 when every
   screen is as expected, 1 when one differs, 2 when a walk can't be read.
 
 ## For coding agents
 
-An agent reads the same Screens through three MCP tools. Add them to a
+An agent reads the same Screens through four MCP tools. Add them to a
 project for Claude Code with:
 
 ```bash
@@ -228,8 +250,9 @@ and talks over stdio.
 | Tool | Answers |
 |---|---|
 | `search(query, limit?, kind?, assets?)` | Nodes that match, as Jump matches them: name, full name, kind (a type's, `scene`, `prefab`, `asset` or `library`), label, and the Dependents and Dependencies counts. `kind` narrows the results (`type` means any of your types). |
-| `screen(focus, filter?, limit?, offset?, assets?)` | The Focus box (label, public and serialized members, how many private ones; an asset's components or asset fields) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark, namespace (or folder) distance and declaring file. 25 per row by default; each row gives its total ("25 of 472"). |
+| `screen(focus, filter?, limit?, offset?, assets?)` | The Focus box (label, public and serialized members, how many private ones; an asset's components or asset fields) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark with that Cycle hop by hop, namespace (or folder) distance and declaring file; the Focus gives its Tangle size. 25 per row by default; each row gives its total ("25 of 472"). |
 | `references(from, to, limit?, offset?)` | The References behind one edge: file:line and the member they sit in (for an asset, the GameObject path), 100 at a time. |
+| `hints(kind?, filter?, limit?, offset?, assets?)` | Every node in a Tangle, biggest Tangle first, each with its Tangle's number and size and its edges inside it; 50 at a time. `cycle` is the only kind so far. |
 
 `assets: false` leaves scenes, prefabs and ScriptableObject assets out, as
 the page's Show assets toggle does. The tools keep no Trail: to Drill, call
@@ -246,6 +269,7 @@ tools' own JSON:
 codezoom search WSp --json
 codezoom screen Tower --limit 10 --json
 codezoom references Tower TowerConfig --json
+codezoom hints --json
 ```
 
 ## Commands and options
@@ -259,9 +283,10 @@ codezoom references Tower TowerConfig --json
 | `codezoom search QUERY` | Nodes that match, best first. |
 | `codezoom screen NODE` | One Screen: the Focus box and both rows. |
 | `codezoom references FROM TO` | The References behind one edge. |
-| `--json` | Answer search, screen or references as JSON. |
-| `--filter TEXT`, `--limit N`, `--offset N` | Filter and page the rows of a screen; search takes `--limit`, references `--limit` and `--offset`. |
-| `--kind KIND`, `--no-assets` | Narrow search to one kind; leave assets out of search and screen. |
+| `codezoom hints` | Every node in a Tangle, biggest Tangle first. |
+| `--json` | Answer search, screen, references or hints as JSON. |
+| `--filter TEXT`, `--limit N`, `--offset N` | Filter and page the rows of a screen, or the hints list; search takes `--limit`, references `--limit` and `--offset`. |
+| `--kind KIND`, `--no-assets` | Narrow search or hints to one kind; leave assets out of search, screen and hints. |
 | `--port N` | First port to try (default 4777). |
 | `--config FILE` | Use a config kept outside the project. |
 | `--cache-dir DIR`, `--no-cache` | Where the index cache lives, or none. |
