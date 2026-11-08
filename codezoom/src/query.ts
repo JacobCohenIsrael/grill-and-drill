@@ -377,10 +377,12 @@ export function hintsText(a: HintsAnswer): string {
   ];
   if (a.total) lines.push(`Showing ${a.shown ? `${a.offset + 1}-${a.offset + a.shown}` : "none"} of ${a.matching}${a.matching !== a.total ? ` matching (${a.total} in all)` : ""}`);
   const w = Math.max(0, ...a.items.map((n) => n.name.length));
+  const lw = Math.max(0, ...a.items.map((n) => n.label.length + 2));
+  const ew = Math.max(0, ...a.items.map((n) => String(n.edgesInside).length));
   let last = 0;
   for (const n of a.items) {
     if (n.tangle.number !== last) lines.push(`Tangle ${(last = n.tangle.number)} (${n.tangle.size} nodes)`);
-    lines.push(`  ${n.name.padEnd(w)}  «${n.label}»  ${n.edgesInside} edges inside${n.file ? `  ${n.file}` : ""}`);
+    lines.push(`  ${n.name.padEnd(w)}  ${`«${n.label}»`.padEnd(lw)}  ${String(n.edgesInside).padStart(ew)} edges inside${n.file ? `  ${n.file}` : ""}`);
   }
   return withNotes(lines, a.notes);
 }

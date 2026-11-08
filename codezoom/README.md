@@ -9,8 +9,9 @@ along your **Trail**, or **Jump** anywhere by name. In a Unity project the
 scenes, prefabs and ScriptableObject assets wired to your code are nodes
 too. Coding agents can ask the same questions through MCP.
 
-New in 1.2.0: [Unity assets as nodes](#unity-assets). 1.1.0 brought agent
-access ([MCP and `--json`](#for-coding-agents)) and
+New in 1.3.0: [Hints](#hints), starting with Tangles and the shortest Cycles
+through each Focus. 1.2.0 brought [Unity assets as nodes](#unity-assets),
+and 1.1.0 agent access ([MCP and `--json`](#for-coding-agents)) and
 [plain .NET C# projects](#plain-net).
 
 Overview, demo and design notes: <https://jacobcohenisrael.github.io/grill-and-drill/>
