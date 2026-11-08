@@ -353,7 +353,7 @@
     {#if setupPage}
       <SetupPage onlyNew={setupPage.onlyNew} onSaved={afterSetup} />
     {:else if focusId === null}
-      <StartPage nodes={searchNodes} query={initialQuery} onJump={jump} />
+      <StartPage nodes={searchNodes} tangles={meta.tangles ?? []} query={initialQuery} onJump={jump} />
     {:else if layers.length}
       {#if indexUpdate}
         <div class="notice" role="status">

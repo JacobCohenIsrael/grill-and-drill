@@ -15,18 +15,23 @@
   const CODE = `12px ${FONT_CODE}`;
   const LINE = 18;
   const PAD = 12;
-  const HEADER = 62;
+  /** Label, name and namespace; a hint line under them when there is one (ADR 0008). */
+  const HEAD = 62;
+  const HINT_LINE = 16;
   const lib = $derived(node.kind === "library");
   const asset = $derived(isAssetKind(node.kind));
   /** A scene's or prefab's component types, or a ScriptableObject asset's asset fields. */
   const items = $derived(box.asset?.items ?? []);
   const FOLD = 14;
+  const hint = $derived(node.tangle ? `⟲ Tangle of ${node.tangle}` : "");
+  const HEADER = $derived(HEAD + (hint ? HINT_LINE : 0));
 
   const lineText = (m: FocusMember) => `${m.vis} ${m.event ? "«event» " : ""}${m.text}`;
   const width = $derived.by(() => {
     const natural = Math.max(
       textWidth(node.name, `600 15px ${FONT_UI}`),
       textWidth(node.namespace, `11px ${FONT_UI}`),
+      textWidth(hint, `11px ${FONT_UI}`),
       ...[...box.attributes, ...box.operations].map((m) => textWidth(lineText(m), CODE) + (m.serialized ? 70 : 0)),
       ...items.map((i) => textWidth(i.text, CODE)),
     );
@@ -34,7 +39,7 @@
   });
   const maxText = $derived(width - PAD * 2);
 
-  const attrTop = HEADER;
+  const attrTop = $derived(HEADER);
   const opTop = $derived(attrTop + (box.attributes.length ? box.attributes.length * LINE + 10 : 10));
   const footTop = $derived(opTop + (box.operations.length ? box.operations.length * LINE + 10 : 10));
   const height = $derived(lib ? HEADER + 34 : asset ? HEADER + 10 + Math.max(1, items.length) * LINE + 4 : footTop + (box.hidden ? 24 : 4));
@@ -60,6 +65,12 @@
     <text class="label" x={width / 2} y="18">«{node.label}»</text>
     <text class="name" class:abstract={node.abstract} x={width / 2} y="38">{fitText(node.name, `600 15px ${FONT_UI}`, maxText)}</text>
     <text class="ns" x={width / 2} y="53">{fitText(lib ? "foreign library" : node.namespace || "(global namespace)", `11px ${FONT_UI}`, maxText)}</text>
+    {#if hint}
+      <text class="hint" x={width / 2} y={HEAD + 6}>
+        <title>In a Tangle of {node.tangle}: nodes that can each reach every other through their Dependencies. ⟲ marks the neighbours on the shortest Cycles through this Focus.</title>
+        {hint}
+      </text>
+    {/if}
     {#if lib}
       <text class="note" x={width / 2} y={HEADER + 18}>Only its Dependents are shown</text>
     {:else if asset}
@@ -122,8 +133,13 @@
   .label,
   .name,
   .ns,
+  .hint,
   .note {
     text-anchor: middle;
+  }
+  .hint {
+    font-size: 11px;
+    fill: var(--cycle);
   }
   .label {
     font-size: 11px;

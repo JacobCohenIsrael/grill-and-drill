@@ -2,6 +2,7 @@
   "name": "Goblins: two prefabs share one config asset",
   "start": "Goblin.prefab",
   "expect": {
+    "tangle": 2,
     "dependencies": [
       { "name": "Goblin", "edge": "contains" },
       { "name": "Health", "edge": "contains" },

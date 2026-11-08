@@ -20,12 +20,13 @@
       "jump": "WSp",
       "expect": {
         "focus": "WaveSpawner",
+        "tangle": 0,
         "dependents": [{ "name": "GameBootstrap", "edge": "has" }, "WaveDebugWindow"],
         "dependencies": [
           { "name": "WaveConfig", "edge": "has" },
           "EventBus",
-          "EnemyRegistry",
-          { "name": "UnityEngine", "edge": "inherits", "size": "small" }
+          { "name": "EnemyRegistry", "cycle": false },
+          { "name": "UnityEngine", "edge": "inherits", "size": "small", "cycle": false }
         ]
       }
     },

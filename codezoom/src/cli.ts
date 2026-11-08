@@ -1,7 +1,7 @@
 // codezoom <TypeName>: index the Unity project or .NET solution in the
 // current folder and open the browser at that Focus. codezoom setup: choose
 // own code.
-// codezoom mcp, search, screen, references: the agent tools (ADR 0005).
+// codezoom mcp, search, screen, references, hints: the agent tools (ADR 0005).
 
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -13,7 +13,7 @@ import { indexProject, type IndexOptions } from "./indexer.js";
 import { watchProject } from "./watch.js";
 import { formatWalk, parseWalk, runWalk, type Walk } from "./walk.js";
 import { serveMcp } from "./mcp.js";
-import { indexNotes, Query, QueryError, referencesText, screenText, searchText } from "./query.js";
+import { hintsText, indexNotes, Query, QueryError, referencesText, screenText, searchText } from "./query.js";
 import { startServer } from "./server.js";
 import { findRider } from "./editor.js";
 import { findFocus } from "./shared/search.js";
@@ -31,6 +31,7 @@ const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--cache-di
        codezoom search QUERY [--kind KIND] [--limit N] [--no-assets] [--json]
        codezoom screen NODE [--filter TEXT] [--limit N] [--offset N] [--no-assets] [--json]
        codezoom references FROM TO [--limit N] [--offset N] [--json]
+       codezoom hints [--kind cycle] [--filter TEXT] [--limit N] [--offset N] [--no-assets] [--json]
 
 --foreign-types FILE reads foreign type names from a list (made by
 scripts/extract-foreign-types.mjs) instead of Unity's DLLs or a .NET
@@ -53,9 +54,11 @@ Setup link in the page reopens it.
 neighbours each screen must or must not show) against this project and
 exits non-zero when a screen differs. See the README for the format.
 
-"codezoom mcp" serves the agent tools search, screen and references over
-MCP's stdio transport; "codezoom search|screen|references" answer the same
-questions once, as text or, with --json, as the tools' JSON.`;
+"codezoom mcp" serves the agent tools search, screen, references and hints
+over MCP's stdio transport; "codezoom search|screen|references|hints" answer
+the same questions once, as text or, with --json, as the tools' JSON.
+"codezoom hints" lists every node in a Tangle (nodes that can each reach
+every other through Dependencies), biggest Tangle first.`;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -78,7 +81,7 @@ async function main() {
   const indexOptions: IndexOptions = foreignFile ? { foreignTypes: fromForeignList(JSON.parse(readFileSync(foreignFile, "utf8"))) } : {};
   const setupCommand = positional[0] === "setup";
   const walkCommand = positional[0] === "walk";
-  const queryCommand = ["search", "screen", "references"].includes(positional[0]) ? positional[0] : undefined;
+  const queryCommand = ["search", "screen", "references", "hints"].includes(positional[0]) ? positional[0] : undefined;
   const query = setupCommand || walkCommand ? undefined : positional[0];
   const root = process.cwd();
   const configFile = configPath ? resolve(configPath) : join(root, CONFIG_FILE);
@@ -340,9 +343,11 @@ function runQuery(
   cacheDir: string | null,
   options: IndexOptions,
 ): number {
-  const needs = command === "references" ? 2 : 1;
+  const needs = command === "references" ? 2 : command === "hints" ? 0 : 1;
   if (words.length !== needs) {
-    console.error(`codezoom ${command}: ${command === "references" ? "name the node that depends and the node it depends on" : command === "search" ? "give one query" : "name one node"}`);
+    const what =
+      command === "references" ? "name the node that depends and the node it depends on" : command === "search" ? "give one query" : command === "hints" ? "takes no names; use --filter" : "name one node";
+    console.error(`codezoom ${command}: ${what}`);
     return 2;
   }
   const cache = IndexCache.load(cacheDir);
@@ -356,6 +361,9 @@ function runQuery(
     } else if (command === "screen") {
       const a = q.screen(words[0], page);
       console.log(json ? JSON.stringify(a, null, 2) : screenText(a));
+    } else if (command === "hints") {
+      const a = q.hints(page.kind, page);
+      console.log(json ? JSON.stringify(a, null, 2) : hintsText(a));
     } else {
       const a = q.references(words[0], words[1], page);
       console.log(json ? JSON.stringify(a, null, 2) : referencesText(a));

@@ -3,6 +3,7 @@
   "start": "TinyTowers.Towers.Tower",
   "expect": {
     "focus": "Tower",
+    "tangle": 2,
     "dependents": [
       "BuildGrid",
       { "name": "ArrowTower", "edge": "inherits" },

@@ -1,8 +1,9 @@
 {
-  "name": "Enemies and their registry: a cycle",
+  "name": "Enemies and their registry: a Tangle of four",
   "start": "Enemy",
   "expect": {
     "focus": "Enemy",
+    "tangle": 4,
     "dependents": [
       { "name": "EnemyRegistry", "size": "large", "cycle": true },
       { "name": "Bat", "edge": "inherits" },
@@ -24,6 +25,7 @@
       "drill": "EnemyRegistry",
       "expect": {
         "focus": "EnemyRegistry",
+        "tangle": 4,
         "dependents": [{ "name": "Enemy", "cycle": true }, "CannonTower", "Tower", "WaveSpawner"],
         "dependencies": [
           { "name": "Enemy", "edge": "has", "size": "large", "cycle": true },
@@ -32,6 +34,24 @@
         ]
       }
     },
-    { "back": true, "expect": { "focus": "Enemy" } }
+    { "back": true, "expect": { "focus": "Enemy" } },
+    {
+      "drill": "Bat",
+      "expect": {
+        "focus": "Bat",
+        "tangle": 4,
+        "dependents": [{ "name": "EnemyRegistry", "edge": "uses", "cycle": true }],
+        "dependencies": [{ "name": "Enemy", "edge": "inherits", "cycle": true }]
+      }
+    },
+    { "back": true, "expect": { "focus": "Enemy" } },
+    {
+      "drill": "Goblin",
+      "expect": {
+        "focus": "Goblin",
+        "tangle": 0,
+        "dependencies": [{ "name": "Enemy", "edge": "inherits", "cycle": false }]
+      }
+    }
   ]
 }

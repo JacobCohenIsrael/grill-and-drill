@@ -1,17 +1,22 @@
 // The questions agents ask (ADR 0005), answered from the precomputed
-// Screens: search, screen and references. Stateless: no Trail, so a Drill is
+// Screens: search, screen, references and hints. Stateless: no Trail, so a Drill is
 // just another screen call. Shared by `codezoom mcp` and the --json CLI.
 
 import type { Index } from "./indexer.js";
 import type { Screens } from "./graph/screens.js";
 import { findFocus, matchesName, search as searchNodes } from "./shared/search.js";
-import { isAssetKind, type FocusMember, type Neighbour, type NodeInfo, type Screen } from "./shared/types.js";
+import { isAssetKind, type CycleHop, type EdgeKind, type FocusMember, type Neighbour, type NodeInfo, type Screen } from "./shared/types.js";
 import { orderBySize, sizeRow, type BoxSize, type Row } from "./shared/weight.js";
 import { CONFIG_FILE } from "./shared/ownRules.js";
 
 export const ROW_LIMIT = 25;
 export const SEARCH_LIMIT = 20;
 export const REFERENCE_LIMIT = 100;
+export const HINTS_LIMIT = 50;
+
+/** The kinds of Hint `hints` lists (ADR 0008). */
+export const HINT_KINDS = ["cycle"] as const;
+export type HintKind = (typeof HINT_KINDS)[number];
 
 /** A question that has no answer as asked: no such node, two candidates, no such edge. */
 export class QueryError extends Error {}
@@ -39,12 +44,23 @@ export interface RowItem extends NodeSummary {
   referenceCount: number;
   /** M: members of the using end those References sit in. */
   memberCount: number;
-  /** The node is in both rows. */
+  /** On a shortest Cycle through the Focus (every node in both rows is). */
   cycle: boolean;
+  /** The evidence behind each Hint on this neighbour. */
+  hints: HintEvidence[];
   /** Namespace steps to the Focus (folder steps when an asset is involved); null for a foreign library. */
   namespaceDistance: number | null;
   /** Where the node is declared, path:line; null for a foreign library. */
   file: string | null;
+}
+
+/** One step of a Cycle, with its first Reference: from a type the member it sits in, from an asset the GameObject. */
+export type CycleStep = { from: string; edge: EdgeKind; to: string; at: string } & ({ member: string } | { gameObject: string | null });
+
+/** A Cycle Hint: one shortest Cycle through the Focus and this neighbour, Focus first and last. */
+export interface HintEvidence {
+  hint: "cycle";
+  cycle: CycleStep[];
 }
 
 export interface RowAnswer {
@@ -73,6 +89,8 @@ export interface ScreenAnswer {
     components?: string[];
     /** A ScriptableObject asset: its fields that assign assets. */
     fields?: string[];
+    /** The size of its Tangle: nodes that can each reach every other through Dependencies. 0 when it is in none. */
+    tangle: number;
   };
   dependents: RowAnswer;
   dependencies: RowAnswer;
@@ -90,6 +108,21 @@ export interface ReferencesAnswer {
   shown: number;
   /** From a type: the member each sits in. From an asset: the GameObject (null for a ScriptableObject). */
   references: ({ at: string; member: string } | { at: string; gameObject: string | null })[];
+  notes: string[];
+}
+
+export interface HintsAnswer {
+  hint: HintKind;
+  /** Every Tangle's size, biggest first; a node's `tangle.number` counts from 1 in this list. */
+  tangles: number[];
+  /** Nodes with this Hint. */
+  total: number;
+  /** Nodes the filter keeps. */
+  matching: number;
+  offset: number;
+  shown: number;
+  /** Biggest Tangle first; within one, the nodes with the most edges inside it first. */
+  items: (NodeSummary & { tangle: { number: number; size: number }; edgesInside: number; file: string | null })[];
   notes: string[];
 }
 
@@ -164,6 +197,7 @@ export class Query {
         operations: box.operations.map(memberLine),
         private: box.hidden,
         ...(asset ? (node.kind === "asset" ? { fields: contents } : { components: contents }) : {}),
+        tangle: node.tangle ?? 0,
       },
       dependents: this.row(screen, "dependents", page),
       dependencies: this.row(screen, "dependencies", page),
@@ -199,6 +233,35 @@ export class Query {
     };
   }
 
+  /**
+   * The nodes a kind of Hint marks, project-wide (ADR 0008). Cycle: every node
+   * in a Tangle, biggest Tangle first.
+   */
+  hints(kind: string = "cycle", page: Page = {}): HintsAnswer {
+    if (!(HINT_KINDS as readonly string[]).includes(kind)) throw new QueryError(`kind must be one of ${HINT_KINDS.join(", ")}`);
+    // edges from a type never reach an asset, so a Tangle is all types or all assets
+    const tangles = this.screens.meta.tangles.filter((t) => page.assets !== false || !isAssetKind(this.nodes.get(t[0].id)!.kind));
+    const all = tangles.flatMap((t, i) => t.map(({ id, inside }) => ({ node: this.nodes.get(id)!, number: i + 1, size: t.length, inside })));
+    const kept = page.filter?.trim() ? all.filter(({ node }) => matchesName(node, page.filter!)) : all;
+    const offset = Math.max(0, Math.floor(page.offset ?? 0));
+    const shown = kept.slice(offset, offset + clamp(page.limit, HINTS_LIMIT));
+    return {
+      hint: "cycle",
+      tangles: tangles.map((t) => t.length),
+      total: all.length,
+      matching: kept.length,
+      offset,
+      shown: shown.length,
+      items: shown.map(({ node, number, size, inside }) => ({
+        ...summary(node),
+        tangle: { number, size },
+        edgesInside: inside,
+        file: node.file === undefined ? null : this.at(node.file, node.line ?? 0),
+      })),
+      notes: this.notes,
+    };
+  }
+
   /** The one node a name refers to, as the command line reads it. */
   private find(name: string): NodeInfo {
     if (!name?.trim()) throw new QueryError("name a node: a type's name or full name, or a foreign library");
@@ -215,6 +278,13 @@ export class Query {
 
   private at(file: number, line: number): string {
     return `${this.screens.meta.files[file]}:${line}`;
+  }
+
+  private step(hop: CycleHop): CycleStep {
+    const from = this.nodes.get(hop.from)!;
+    const [member, file, line] = hop.ref;
+    const base = { from: from.name, edge: hop.edge, to: this.nodes.get(hop.to)!.name, at: this.at(file, line) };
+    return isAssetKind(from.kind) ? { ...base, gameObject: member || null } : { ...base, member };
   }
 
   /** One row as the page orders it (sizes from the whole row, before the filter), then filtered and paged. */
@@ -245,6 +315,7 @@ export class Query {
           referenceCount: n.count,
           memberCount: n.members,
           cycle: n.cycle,
+          hints: (n.hints ?? []).map((h) => ({ hint: h.kind, cycle: h.hops.map((step) => this.step(step)) })),
           namespaceDistance: lib ? null : n.distance,
           file: lib || node.file === undefined ? null : this.at(node.file, node.line ?? 0),
         };
@@ -283,6 +354,7 @@ export function screenText(a: ScreenAnswer): string {
   if (f.file) lines.push(`  ${f.file}${f.parts.length ? ` (+${f.parts.length - 1} more parts)` : ""}`);
   for (const m of [...f.attributes, ...f.operations, ...(f.components ?? []), ...(f.fields ?? [])]) lines.push(`  ${m}`);
   if (f.private) lines.push(`  +${f.private} private`);
+  if (f.tangle) lines.push(`  ⟲ in a Tangle of ${f.tangle}`);
   for (const [title, row] of [["Dependents", a.dependents], ["Dependencies", a.dependencies]] as const) {
     const range = row.shown ? `${row.offset + 1}-${row.offset + row.shown} of ${row.matching}` : row.matching ? `none of ${row.matching}` : "none";
     lines.push(`${title}: ${range}${row.matching !== row.total ? ` matching (${row.total} in all)` : ""}`);
@@ -290,7 +362,25 @@ export function screenText(a: ScreenAnswer): string {
     for (const n of row.items) {
       const weight = `W ${n.weight} (R ${n.referenceCount}, M ${n.memberCount})`;
       lines.push(`  ${n.size.padEnd(6)}  ${n.name.padEnd(w)}  ${n.edge.padEnd(11)}  ${weight.padEnd(20)}${n.cycle ? "  cycle" : ""}${n.file ? `  ${n.file}` : ""}`);
+      for (const h of n.hints) lines.push(`          ⟲ ${[h.cycle[0].from, ...h.cycle.map((s) => s.to)].join(" → ")}`);
     }
+  }
+  return withNotes(lines, a.notes);
+}
+
+export function hintsText(a: HintsAnswer): string {
+  const nodes = a.tangles.reduce((sum, size) => sum + size, 0);
+  const lines = [
+    a.tangles.length
+      ? `${a.tangles.length} ${a.tangles.length === 1 ? "Tangle holds" : "Tangles hold"} ${nodes} nodes (sizes ${a.tangles.join(", ")})`
+      : "No Tangles: no node can reach itself through its Dependencies",
+  ];
+  if (a.total) lines.push(`Showing ${a.shown ? `${a.offset + 1}-${a.offset + a.shown}` : "none"} of ${a.matching}${a.matching !== a.total ? ` matching (${a.total} in all)` : ""}`);
+  const w = Math.max(0, ...a.items.map((n) => n.name.length));
+  let last = 0;
+  for (const n of a.items) {
+    if (n.tangle.number !== last) lines.push(`Tangle ${(last = n.tangle.number)} (${n.tangle.size} nodes)`);
+    lines.push(`  ${n.name.padEnd(w)}  «${n.label}»  ${n.edgesInside} edges inside${n.file ? `  ${n.file}` : ""}`);
   }
   return withNotes(lines, a.notes);
 }

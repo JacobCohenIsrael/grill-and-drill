@@ -15,14 +15,16 @@
 //   }
 //   screen = {
 //     "focus": "Tower",                              // optional
+//     "tangle": 2,                                   // optional: the Focus's Tangle size, 0 for none
 //     "dependents":   [ "BuildGrid", { "name": "TowerConfig", "cycle": true } ],
 //     "dependencies": [ { "name": "ITargetable", "edge": "has", "size": "large" } ],
 //     "absent": { "dependents": [ ... ], "dependencies": [ ... ] }
 //   }
 // Listed neighbours must be in that row; absent ones must not. Edge kind
 // (inherits, implements, has, uses; from an asset: inherits, instance of,
-// contains, assigns, calls), size (small, medium, large) and cycle
-// are checked only where given. Anything unlisted is allowed. Names match a
+// contains, assigns, calls), size (small, medium, large), cycle (on a
+// shortest Cycle through the Focus) and the Focus's tangle are checked only
+// where given. Anything unlisted is allowed. Names match a
 // node's id, full name, shown name or simple name, the row's own nodes first.
 
 import type { Screens } from "./graph/screens.js";
@@ -39,6 +41,8 @@ export interface NeighbourExpectation {
 
 export interface ScreenExpectation {
   focus?: string;
+  /** The size of the Focus's Tangle; 0 when it is in none. */
+  tangle?: number;
   /** A plain name stands for { name }. */
   dependents?: (NeighbourExpectation | string)[];
   dependencies?: (NeighbourExpectation | string)[];
@@ -97,9 +101,13 @@ export function parseWalk(text: string): Walk {
 }
 
 function screenExpectation(raw: unknown, where: string): ScreenExpectation {
-  const e = object(raw, where, ["focus", "dependents", "dependencies", "absent"]);
+  const e = object(raw, where, ["focus", "tangle", "dependents", "dependencies", "absent"]);
   const out: ScreenExpectation = {};
   if (e.focus !== undefined) out.focus = string(e.focus, `${where}.focus`);
+  if (e.tangle !== undefined) {
+    if (typeof e.tangle !== "number" || !Number.isInteger(e.tangle) || e.tangle < 0 || e.tangle === 1) throw new Error(`${where}.tangle must be 0 or a Tangle size of 2 or more`);
+    out.tangle = e.tangle;
+  }
   for (const row of ROWS) {
     if (e[row] === undefined) continue;
     if (!Array.isArray(e[row])) throw new Error(`${where}.${row} must be a list`);
@@ -204,6 +212,9 @@ function check(expect: ScreenExpectation | undefined, screen: Screen, nodes: Map
   const problems: string[] = [];
   const focus = nodes.get(screen.focus.id)!;
   if (expect.focus && !matchIn(expect.focus, [focus]).length) problems.push(`Focus is ${focus.name}, expected ${expect.focus}`);
+  const tangle = focus.tangle ?? 0;
+  if (expect.tangle !== undefined && tangle !== expect.tangle)
+    problems.push(`${focus.name} is ${tangle ? `in a Tangle of ${tangle}` : "in no Tangle"}, expected ${expect.tangle ? `a Tangle of ${expect.tangle}` : "none"}`);
   for (const row of ROWS) {
     const items: Neighbour[] = screen[row];
     const rowNodes = items.map((n) => nodes.get(n.id)!);
@@ -219,7 +230,8 @@ function check(expect: ScreenExpectation | undefined, screen: Screen, nodes: Map
       const n = items[i];
       if (want.edge && n.edge !== want.edge) problems.push(`${TITLE[row]}: ${hit[0].name} is ${n.edge}, expected ${want.edge}`);
       if (want.size && sizes[i] !== want.size) problems.push(`${TITLE[row]}: ${hit[0].name} is ${sizes[i]} (Weight ${n.weight}), expected ${want.size}`);
-      if (want.cycle !== undefined && n.cycle !== want.cycle) problems.push(`${TITLE[row]}: ${hit[0].name} is ${n.cycle ? "" : "not "}a cycle, expected ${want.cycle ? "" : "not "}a cycle`);
+      if (want.cycle !== undefined && n.cycle !== want.cycle)
+        problems.push(`${TITLE[row]}: ${hit[0].name} is ${n.cycle ? "" : "not "}on a shortest Cycle, expected ${want.cycle ? "" : "not "}to be`);
     }
     for (const name of expect.absent?.[row] ?? []) {
       const hit = matchIn(name, rowNodes);

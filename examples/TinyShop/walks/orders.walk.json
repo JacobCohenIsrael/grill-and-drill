@@ -3,12 +3,13 @@
   "start": "TinyShop.Orders.OrderService",
   "expect": {
     "focus": "OrderService",
+    "tangle": 0,
     "dependents": [{ "name": "Program", "edge": "uses" }],
     "dependencies": [
       { "name": "Order", "edge": "uses", "size": "large" },
       { "name": "IOrderRepository", "edge": "has" },
-      { "name": "IProductCatalog", "edge": "has" },
-      { "name": "IPricingRule", "edge": "has" },
+      { "name": "IProductCatalog", "edge": "has", "cycle": false },
+      { "name": "IPricingRule", "edge": "has", "cycle": false },
       { "name": "UnknownProductException", "edge": "uses" },
       { "name": "Microsoft.Extensions.Logging.Abstractions", "edge": "has", "size": "small" }
     ],

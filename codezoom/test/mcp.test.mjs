@@ -1,5 +1,5 @@
 // `codezoom mcp` on examples/TinyTowers, through the official MCP client:
-// the three tools answer with the facts the golden walks pin.
+// the four tools answer with the facts the golden walks pin.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -44,13 +44,13 @@ async function withServer(fn, { cwd = project, extra = [], foreign = foreignFile
 
 const names = (row) => row.items.map((n) => n.name);
 
-test("mcp: three stateless tools, no source and no walk tool", async () => {
+test("mcp: four stateless tools, no source and no walk tool", async () => {
   await withServer(async ({ client }) => {
     assert.equal(client.getServerVersion().name, "codezoom");
     assert.equal(client.getServerVersion().version, version);
     assert.match(client.getInstructions(), /Dependents/);
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name).sort(), ["references", "screen", "search"]);
+    assert.deepEqual(tools.map((t) => t.name).sort(), ["hints", "references", "screen", "search"]);
     for (const t of tools) assert.equal(t.annotations.readOnlyHint, true);
   });
 });
@@ -193,6 +193,54 @@ test("mcp: stdout carries protocol messages only", async () => {
   assert.match(err, /codezoom mcp: \d+ types/, "logs go to stderr");
 });
 
+test("mcp hints: every node in a Tangle, biggest Tangle first, code before assets", async () => {
+  await withServer(async ({ call }) => {
+    const all = await call("hints", {});
+    assert.equal(all.hint, "cycle");
+    assert.deepEqual(all.tangles, [4, 4, 2, 2]);
+    assert.equal(all.total, 12);
+    assert.deepEqual(
+      all.items.slice(0, 4).map((n) => `${n.name} ${n.tangle.number}/${n.tangle.size} ${n.edgesInside}`),
+      ["Enemy 1/4 5", "EnemyRegistry 1/4 3", "Bat 1/4 2", "EnemyConfig 1/4 2"],
+    );
+    assert.equal(all.items[0].file, "Assets/TinyTowers/Gameplay/Enemies/Enemy.cs:6");
+
+    const code = await call("hints", { assets: false, filter: "Config", limit: 1, offset: 1 });
+    assert.deepEqual(code.tangles, [4, 2]);
+    assert.deepEqual([code.total, code.matching, code.offset, code.shown], [6, 2, 1, 1]);
+    assert.deepEqual(code.items.map((n) => `${n.name} ${n.tangle.number}`), ["TowerConfig 2"]);
+
+    assert.match((await call("hints", { kind: "smell" })).error, /kind must be one of cycle/);
+  });
+});
+
+test("mcp screen: the Focus's Tangle, and each Cycle hop by hop", async () => {
+  await withServer(async ({ call }) => {
+    const bat = await call("screen", { focus: "Bat" });
+    assert.equal(bat.focus.tangle, 4);
+    const [enemy] = bat.dependencies.items;
+    assert.equal(enemy.cycle, true);
+    assert.deepEqual(enemy.hints, [
+      {
+        hint: "cycle",
+        cycle: [
+          { from: "Bat", edge: "inherits", to: "Enemy", at: "Assets/TinyTowers/Gameplay/Enemies/Bat.cs:4", member: "base type" },
+          { from: "Enemy", edge: "uses", to: "EnemyRegistry", at: "Assets/TinyTowers/Gameplay/Enemies/Enemy.cs:27", member: "Spawn()" },
+          { from: "EnemyRegistry", edge: "uses", to: "Bat", at: "Assets/TinyTowers/Gameplay/Enemies/EnemyRegistry.cs:22", member: "InRange()" },
+        ],
+      },
+    ]);
+    const spawner = await call("screen", { focus: "WaveSpawner" });
+    assert.equal(spawner.focus.tangle, 0);
+    assert.ok(spawner.dependencies.items.every((n) => !n.cycle && n.hints.length === 0));
+    // from an asset, a hop names the GameObject its Reference sits in
+    const goblin = await call("screen", { focus: "Goblin.prefab" });
+    const step = goblin.dependencies.items.find((n) => n.name === "Goblin.asset").hints[0].cycle[0];
+    assert.equal(step.from, "Goblin.prefab");
+    assert.ok("gameObject" in step && !("member" in step));
+  });
+});
+
 test("--json answers exactly as the tools do", async () => {
   const { execFileSync } = await import("node:child_process");
   const cliJson = (...args) => {
@@ -206,6 +254,7 @@ test("--json answers exactly as the tools do", async () => {
     assert.deepEqual(cliJson("screen", "Tower", "--limit", "3", "--filter", "o").out, await call("screen", { focus: "Tower", limit: 3, filter: "o" }));
     assert.deepEqual(cliJson("search", "WSp").out, await call("search", { query: "WSp" }));
     assert.deepEqual(cliJson("references", "Tower", "TowerConfig").out, await call("references", { from: "Tower", to: "TowerConfig" }));
+    assert.deepEqual(cliJson("hints", "--limit", "3", "--no-assets").out, await call("hints", { limit: 3, assets: false }));
   });
   const miss = cliJson("screen", "NoSuchType");
   assert.equal(miss.code, 1);

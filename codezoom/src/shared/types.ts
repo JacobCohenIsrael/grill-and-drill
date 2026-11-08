@@ -25,6 +25,8 @@ export interface NodeInfo {
   abstract: boolean;
   dependents: number;
   dependencies: number;
+  /** The size of its Tangle (ADR 0008); absent when it is in none. */
+  tangle?: number;
   /** Own type: where it is declared (its first part), index into Meta.files. Absent for a library. */
   file?: number;
   line?: number;
@@ -44,10 +46,26 @@ export interface Neighbour {
   weight: number;
   /** Namespace distance to the Focus (folder distance for an asset); assets sort after types, libraries last. */
   distance: number;
-  /** In both rows. */
+  /** On a shortest Cycle through the Focus (ADR 0008): every node in both rows, and more when there is none. */
   cycle: boolean;
   refs: RefWire[];
+  /** The evidence behind each Hint on this neighbour; absent when it has none. */
+  hints?: NeighbourHint[];
 }
+
+/** One step of a Cycle: the edge from one node to the next, with its first Reference. */
+export interface CycleHop {
+  from: string;
+  to: string;
+  edge: EdgeKind;
+  ref: RefWire;
+}
+
+/** A Hint on a neighbour (ADR 0008). A Cycle: one shortest Cycle through the Focus and this neighbour, Focus first and last. */
+export type NeighbourHint = { kind: "cycle"; hops: CycleHop[] };
+
+/** A Tangle (ADR 0008): its nodes, the ones with the most edges inside it first, each with that edge count. */
+export type Tangle = { id: string; inside: number }[];
 
 export type Visibility = "+" | "-" | "#" | "~";
 
@@ -98,6 +116,8 @@ export interface Meta {
   nodes: NodeInfo[];
   files: string[];
   stats: IndexStats;
+  /** Every Tangle, biggest first. */
+  tangles: Tangle[];
   /** The editor "Open in …" launches, when one was found. */
   editor?: string | null;
   /** Goes up each time the index is rebuilt while the server runs. */

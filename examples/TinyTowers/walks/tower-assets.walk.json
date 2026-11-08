@@ -2,6 +2,7 @@
   "name": "Arrow towers: a prefab, its variant and their configs",
   "start": "ArrowTowerElite.prefab",
   "expect": {
+    "tangle": 4,
     "dependencies": [
       { "name": "ArrowTower.prefab", "edge": "inherits", "size": "medium" },
       { "name": "ArrowTowerElite.asset", "edge": "assigns", "cycle": true }

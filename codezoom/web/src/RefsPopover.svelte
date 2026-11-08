@@ -1,17 +1,19 @@
 <script lang="ts">
-  import { isAssetKind, type EdgeKind, type Neighbour, type NodeInfo } from "../../src/shared/types";
+  import { isAssetKind, type CycleHop, type EdgeKind, type Neighbour, type NodeInfo } from "../../src/shared/types";
 
   interface Props {
     item: Neighbour;
     node: NodeInfo;
     focus: NodeInfo;
+    /** Every node on the screen's index: Cycles pass through nodes that may not be on screen. */
+    nodes: Map<string, NodeInfo>;
     position: "above" | "below";
     anchor: DOMRect;
     files: string[];
     onEnter: () => void;
     onLeave: () => void;
   }
-  let { item, node, focus, position, anchor, files, onEnter, onLeave }: Props = $props();
+  let { item, node, focus, nodes, position, anchor, files, onEnter, onLeave }: Props = $props();
 
   const KIND: Record<EdgeKind, string> = {
     inherits: "Inherits",
@@ -37,6 +39,9 @@
   /** An asset's References sit in GameObjects, not members. */
   const fromAsset = $derived(isAssetKind(from.kind));
   const unit = $derived(fromAsset ? (from.kind === "asset" ? "asset" : "GameObject") : "member");
+  const nameOf = (id: string) => nodes.get(id)?.name ?? id;
+  /** Where a hop's first Reference sits: a member, or for an asset the GameObject. */
+  const sitsIn = (hop: CycleHop) => (isAssetKind(nodes.get(hop.from)?.kind ?? "class") ? `${nameOf(hop.from)}${hop.ref[0] ? ` > ${hop.ref[0]}` : ""}` : hop.ref[0]);
 </script>
 
 <div class="pop" {style} role="tooltip" onmouseenter={onEnter} onmouseleave={onLeave}>
@@ -45,10 +50,20 @@
     <span class="kind {item.edge}">{KIND[item.edge]}</span>
     <strong>{to.name}</strong>
   </div>
-  <div class="sub">
-    {node.full}
-    {#if item.cycle}<span class="cycle">⟲ cycle: also in the other row</span>{/if}
-  </div>
+  <div class="sub">{node.full}</div>
+  {#each item.hints ?? [] as h, i (i)}
+    <div class="hint">
+      <div class="hint-head">⟲ On a shortest Cycle through {focus.name}</div>
+      <ol>
+        {#each h.hops as hop, j (j)}
+          <li title="{files[hop.ref[1]]}:{hop.ref[2]}">
+            <span class="hop">{nameOf(hop.from)} <span class="kind {hop.edge}">{KIND[hop.edge]}</span> {nameOf(hop.to)}</span>
+            <span class="where">{sitsIn(hop)} · {baseName(files[hop.ref[1]])}:{hop.ref[2]}</span>
+          </li>
+        {/each}
+      </ol>
+    </div>
+  {/each}
   <div class="weight">
     Weight {item.weight}: {item.count} {item.count === 1 ? "Reference" : "References"} in {item.members}
     {item.members === 1 ? unit : `${unit}s`} of {from.name}
@@ -98,9 +113,37 @@
     font-size: 12px;
     font-variant-numeric: tabular-nums;
   }
-  .cycle {
+  .hint {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border-left: 2px solid var(--cycle);
+    background: color-mix(in srgb, var(--cycle) 8%, transparent);
+    border-radius: 0 4px 4px 0;
+    font-size: 12px;
+  }
+  .hint-head {
     color: var(--cycle);
-    margin-left: 8px;
+    font-weight: 600;
+  }
+  .hint ol {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+  }
+  .hint li {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 2px 0;
+    border: none;
+  }
+  .hint li + li {
+    margin-top: 2px;
+  }
+  .hint .where {
+    font: 11px var(--font-code);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   ul {
     list-style: none;

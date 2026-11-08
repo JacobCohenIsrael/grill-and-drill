@@ -5,7 +5,7 @@
 
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { Query, QueryError, REFERENCE_LIMIT, ROW_LIMIT, SEARCH_KINDS, SEARCH_LIMIT } from "./query.js";
+import { HINT_KINDS, HINTS_LIMIT, Query, QueryError, REFERENCE_LIMIT, ROW_LIMIT, SEARCH_KINDS, SEARCH_LIMIT } from "./query.js";
 
 const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -19,7 +19,11 @@ asset's type) > contains (a component's type, or a nested prefab) > assigns (an 
 field) > calls (a UnityEvent's target type). Assets never add edges between types. Weight is sqrt(R x M):
 R References sitting in M members (for an asset, GameObjects) of the using end; size (large, medium, small)
 ranks it in its row. Find a node with search, read its Screen with screen, then call screen on a neighbour to move
-on; references gives the file:line evidence behind one edge. Read the files themselves for the source.`;
+on; references gives the file:line evidence behind one edge. Read the files themselves for the source.
+Hints point at code that may break a design principle; they are evidence to judge, not verdicts. A Tangle is a
+group of nodes that can each reach every other through Dependencies; a neighbour marked cycle is on a shortest
+Cycle through the Focus, and the screen gives that Cycle hop by hop. hints lists every node in a Tangle,
+biggest Tangle first.`;
 
 const TOOLS = [
   {
@@ -43,7 +47,7 @@ const TOOLS = [
     name: "screen",
     title: "Show a node's Screen",
     description:
-      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest; for a scene or prefab its component types, for a ScriptableObject asset its asset fields) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark, namespace (or folder) distance and declaring file. Rows are paged: each says how many it holds in total.",
+      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest; for a scene or prefab its component types, for a ScriptableObject asset its asset fields) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark (on a shortest Cycle through the Focus) with that Cycle hop by hop, namespace (or folder) distance and declaring file. The Focus says the size of its Tangle (0 for none). Rows are paged: each says how many it holds in total.",
     inputSchema: {
       type: "object",
       properties: {
@@ -54,6 +58,23 @@ const TOOLS = [
         assets: { type: "boolean", description: "false leaves Unity assets out of both rows (sizes are then worked out without them)." },
       },
       required: ["focus"],
+    },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: "hints",
+    title: "List the nodes a Hint marks",
+    description:
+      "Project-wide Hints: marks that point at code that may break a design principle, as evidence to judge. cycle lists every node in a Tangle (nodes that can each reach every other through Dependencies): biggest Tangle first, and within one the nodes with the most edges inside it first, each with its Tangle's number and size. Call screen on a node to see its shortest Cycles.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: [...HINT_KINDS], description: "The kind of Hint (default cycle)." },
+        filter: { type: "string", description: "Keep only nodes whose name matches, as search matches." },
+        limit: { type: "integer", minimum: 0, description: `Nodes to return (default ${HINTS_LIMIT}).` },
+        offset: { type: "integer", minimum: 0, description: "Nodes to skip, for the next page." },
+        assets: { type: "boolean", description: "false leaves Unity assets out." },
+      },
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
@@ -188,7 +209,9 @@ async function callTool(name: string, args: Record<string, unknown>, options: Mc
         ? q.search(needed("query"), count("limit"), { kind: text("kind"), assets: flag("assets") })
         : name === "screen"
           ? q.screen(needed("focus"), { filter: text("filter"), limit: count("limit"), offset: count("offset"), assets: flag("assets") })
-          : q.references(needed("from"), needed("to"), { limit: count("limit"), offset: count("offset") });
+          : name === "hints"
+            ? q.hints(text("kind"), { filter: text("filter"), limit: count("limit"), offset: count("offset"), assets: flag("assets") })
+            : q.references(needed("from"), needed("to"), { limit: count("limit"), offset: count("offset") });
     return result(JSON.stringify(answer));
   } catch (e) {
     if (!(e instanceof QueryError)) options.log(`codezoom mcp: ${name} failed: ${e instanceof Error ? e.stack : e}`);

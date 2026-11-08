@@ -40,6 +40,35 @@ test("indexes TinyTowers to the known totals", () => {
   assert.equal(s.unresolved, 0);
 });
 
+test("TinyTowers has four Tangles: two of types, two of assets", () => {
+  const name = new Map(screens.meta.nodes.map((n) => [n.id, n.name]));
+  assert.deepEqual(
+    screens.meta.tangles.map((t) => t.map(({ id, inside }) => `${name.get(id)} ${inside}`)),
+    [
+      ["Enemy 5", "EnemyRegistry 3", "Bat 2", "EnemyConfig 2"],
+      ["ArrowTower.asset 3", "ArrowTower.prefab 3", "ArrowTowerElite.asset 3", "ArrowTowerElite.prefab 3"],
+      ["Tower 2", "TowerConfig 2"],
+      ["Goblin.asset 2", "Goblin.prefab 2"],
+    ],
+  );
+  const sizes = screens.meta.nodes.filter((n) => n.tangle).map((n) => n.tangle);
+  assert.equal(sizes.length, 12);
+});
+
+test("a Cycle's hover evidence goes hop by hop, each with its first Reference", () => {
+  const bat = screens.meta.nodes.find((n) => n.name === "Bat");
+  const screen = JSON.parse(screens.json.get(bat.id));
+  const [enemy] = screen.dependencies;
+  const name = new Map(screens.meta.nodes.map((n) => [n.id, n.name]));
+  assert.deepEqual(
+    enemy.hints[0].hops.map((h) => `${name.get(h.from)} ${h.edge} ${name.get(h.to)}: ${h.ref[0]} ${screens.meta.files[h.ref[1]].split("/").pop()}:${h.ref[2]}`),
+    ["Bat inherits Enemy: base type Bat.cs:4", "Enemy uses EnemyRegistry: Spawn() Enemy.cs:27", "EnemyRegistry uses Bat: InRange() EnemyRegistry.cs:22"],
+  );
+  // a neighbour on no shortest Cycle carries no hints at all
+  const enemyScreen = JSON.parse(screens.json.get(enemy.id));
+  assert.equal(enemyScreen.dependents.find((n) => n.id === bat.id).hints, undefined);
+});
+
 for (const file of readdirSync(walksDir).filter((f) => f.endsWith(".json"))) {
   test(`golden walk ${file}`, () => {
     const walk = parseWalk(readFileSync(join(walksDir, file), "utf8"));
@@ -63,8 +92,15 @@ test("a walk checks edge kind, size and cycle only where it states them", () => 
   assert.deepEqual(p, [
     "Dependencies: TowerConfig is has, expected uses",
     "Dependencies: TowerConfig is large (Weight 3), expected small",
-    "Dependencies: TowerConfig is a cycle, expected not a cycle",
+    "Dependencies: TowerConfig is on a shortest Cycle, expected not to be",
   ]);
+});
+
+test("a walk checks the Focus's Tangle size only where it states it", () => {
+  assert.deepEqual(problems({ ...tower, expect: { tangle: 2 } }), []);
+  assert.deepEqual(problems({ ...tower, expect: { tangle: 4 } }), ["Tower is in a Tangle of 2, expected a Tangle of 4"]);
+  assert.deepEqual(problems({ start: "WaveSpawner", steps: [], expect: { tangle: 2 } }), ["WaveSpawner is in no Tangle, expected a Tangle of 2"]);
+  assert.deepEqual(problems({ ...tower, expect: { tangle: 0 } }), ["Tower is in a Tangle of 2, expected none"]);
 });
 
 test("a walk reports a neighbour that should be absent", () => {
@@ -94,6 +130,8 @@ test("parseWalk rejects typos instead of passing them", () => {
   assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { dependecies: [] } })), /unknown key "dependecies"/);
   assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [{ drill: "A", back: true }] })), /exactly one of/);
   assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { dependents: [{ name: "A", size: "huge" }] } })), /size must be one of/);
+  assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { tangle: 1 } })), /tangle must be 0 or a Tangle size/);
+  assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { tangle: "2" } })), /tangle must be 0 or a Tangle size/);
 });
 
 test("codezoom walk exits 0, 1 or 2", () => {

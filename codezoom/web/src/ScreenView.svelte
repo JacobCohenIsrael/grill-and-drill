@@ -266,6 +266,7 @@
     item={hovered.box.n}
     node={hovered.box.node}
     {focus}
+    {nodes}
     position={hovered.position}
     anchor={hovered.anchor}
     {files}

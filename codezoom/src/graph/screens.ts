@@ -3,8 +3,9 @@
 
 import type { MemberDecl } from "../csharp/facts.js";
 import type { OwnType } from "../csharp/resolver.js";
-import { isAssetKind, type FocusBox, type FocusMember, type Meta, type Neighbour, type NodeInfo, type Screen, type Visibility } from "../shared/types.js";
+import { isAssetKind, type CycleHop, type FocusBox, type FocusMember, type Meta, type Neighbour, type NodeInfo, type Screen, type Tangle, type Visibility } from "../shared/types.js";
 import type { Edge, Graph } from "./build.js";
+import { findTangles, shortestCycles } from "./hints.js";
 
 /** Distance given to foreign libraries so they sort after every own type and asset. */
 const FOREIGN_DISTANCE = 1000;
@@ -82,18 +83,47 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
   const distance = (focus: NodeInfo, o: NodeInfo) =>
     o.kind === "library" ? FOREIGN_DISTANCE : isAssetKind(o.kind) || isAssetKind(focus.kind) ? folderDistance(folder(focus), folder(o)) : namespaceDistance(focus.namespace, o.namespace);
 
+  // Hints (ADR 0008): Tangles, and the shortest Cycles through each Focus.
+  // Sorted neighbour lists fix which of several equally short Cycles a hover shows.
+  const sortedKeys = (m: Map<string, Edge> | undefined) => (m ? [...m.keys()].sort() : []);
+  const outList = new Map<string, string[]>();
+  const inList = new Map<string, string[]>();
+  const out = (id: string) => outList.get(id) ?? outList.set(id, sortedKeys(graph.out.get(id))).get(id)!;
+  const inn = (id: string) => inList.get(id) ?? inList.set(id, sortedKeys(graph.in.get(id))).get(id)!;
+  const tangleOf = new Map<string, ReadonlySet<string>>();
+  const tangles: Tangle[] = findTangles(
+    nodes.map((n) => n.id),
+    out,
+  )
+    .map((group) => {
+      const members = new Set(group);
+      for (const id of group) tangleOf.set(id, members);
+      const inside = (id: string) => out(id).filter((x) => members.has(x)).length + inn(id).filter((x) => members.has(x)).length;
+      return group.map((id) => ({ id, inside: inside(id) })).sort((a, b) => b.inside - a.inside || compareNames(info.get(a.id)!.name, info.get(b.id)!.name));
+    })
+    .sort((a, b) => b.length - a.length || GROUP(info.get(a[0].id)!) - GROUP(info.get(b[0].id)!) || compareNames(info.get(a[0].id)!.name, info.get(b[0].id)!.name));
+  for (const [id, members] of tangleOf) info.get(id)!.tangle = members.size;
+  /** A Cycle hop by hop, each hop with its first Reference. */
+  const hops = (path: string[]): CycleHop[] =>
+    path.slice(1).map((to, i) => {
+      const e = graph.out.get(path[i])!.get(to)!;
+      const r = e.refs[0];
+      return { from: path[i], to, edge: e.kind, ref: [r.member, fileId(r.file), r.line] };
+    });
+
   const json = new Map<string, string>();
   for (const n of nodes) {
     const outgoing = [...(graph.out.get(n.id)?.values() ?? [])];
     const incoming = [...(graph.in.get(n.id)?.values() ?? [])];
-    const outIds = new Set(outgoing.map((e) => e.to));
-    const inIds = new Set(incoming.map((e) => e.from));
-    const row = (edges: Edge[], other: (e: Edge) => string, otherRow: Set<string>): Neighbour[] =>
+    const tangle = tangleOf.get(n.id);
+    const cycles = tangle ? shortestCycles(n.id, tangle, out, inn) : null;
+    const row = (edges: Edge[], other: (e: Edge) => string, onCycle: Map<string, string[]> | undefined): Neighbour[] =>
       edges
         .map((e) => {
           const id = other(e);
           const o = info.get(id)!;
           const members = new Set(e.refs.map((r) => (r.typeLevel ? "\u0000declaration" : r.member))).size;
+          const cycle = onCycle?.get(id);
           return {
             id,
             edge: e.kind,
@@ -101,8 +131,9 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
             members,
             weight: Math.round(Math.sqrt(e.refs.length * members) * 10) / 10,
             distance: distance(n, o),
-            cycle: otherRow.has(id),
+            cycle: cycle !== undefined,
             refs: e.refs.map((r) => [r.member, fileId(r.file), r.line] as [string, number, number]),
+            ...(cycle ? { hints: [{ kind: "cycle" as const, hops: hops(cycle) }] } : {}),
           };
         })
         // the page groups by size first (shared/weight.ts); this order holds within a size
@@ -118,12 +149,12 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
         : asset
           ? { id: n.id, attributes: [], operations: [], hidden: 0, file: fileId(asset.path), line: 1, parts: [], assembly: "", asset: { items: asset.box } }
           : { id: n.id, attributes: [], operations: [], hidden: 0, file: -1, line: 0, parts: [], assembly: "" },
-      dependents: row(incoming, (e) => e.from, outIds),
-      dependencies: row(outgoing, (e) => e.to, inIds),
+      dependents: row(incoming, (e) => e.from, cycles?.dependents),
+      dependencies: row(outgoing, (e) => e.to, cycles?.dependencies),
     };
     json.set(n.id, JSON.stringify(screen));
   }
-  return { meta: { project, nodes, files, stats }, json };
+  return { meta: { project, nodes, files, stats, tangles }, json };
 }
 
 export function namespaceDistance(a: string, b: string): number {
