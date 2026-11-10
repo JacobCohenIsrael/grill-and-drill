@@ -17,6 +17,8 @@
 //     "focus": "Tower",                              // optional
 //     "tangle": 2,                                   // optional: the Focus's Tangle size, 0 for none
 //     "duplicates": 1,                               // optional: Focus members that are Duplicates
+//     "bypassedInterfaces": 0,                       // optional: classes the Focus keeps despite their interface
+//     "typeSwitches": 0,                             // optional: Focus members that are Type switches
 //     "dependents":   [ "BuildGrid", { "name": "TowerConfig", "cycle": true, "duplicate": false } ],
 //     "dependencies": [ { "name": "ITargetable", "edge": "has", "size": "large" } ],
 //     "absent": { "dependents": [ ... ], "dependencies": [ ... ] }
@@ -25,8 +27,9 @@
 // (inherits, implements, has, uses; from an asset: inherits, instance of,
 // contains, assigns, calls), size (small, medium, large), cycle (on a
 // shortest Cycle through the Focus), duplicate (holds a Duplicate of a Focus
-// member), and the Focus's tangle and duplicates are checked only where
-// given. Anything unlisted is allowed. Names match a
+// member), bypassedInterface and typeSwitch (the edge with the Focus carries
+// one, either way), and the Focus's tangle, duplicates, bypassedInterfaces
+// and typeSwitches are checked only where given. Anything unlisted is allowed. Names match a
 // node's id, full name, shown name or simple name, the row's own nodes first.
 
 import type { Screens } from "./graph/screens.js";
@@ -41,6 +44,10 @@ export interface NeighbourExpectation {
   cycle?: boolean;
   /** Holds a Duplicate of a Focus member (ADR 0009). */
   duplicate?: boolean;
+  /** The edge with the Focus is a Bypassed interface, either way (ADR 0011). */
+  bypassedInterface?: boolean;
+  /** The edge with the Focus is part of a Type switch, either way (ADR 0011). */
+  typeSwitch?: boolean;
 }
 
 export interface ScreenExpectation {
@@ -49,6 +56,10 @@ export interface ScreenExpectation {
   tangle?: number;
   /** How many of the Focus's members are Duplicates (ADR 0009). */
   duplicates?: number;
+  /** How many own classes the Focus keeps although they implement an own interface (ADR 0011). */
+  bypassedInterfaces?: number;
+  /** How many of the Focus's members are Type switches (ADR 0011). */
+  typeSwitches?: number;
   /** A plain name stands for { name }. */
   dependents?: (NeighbourExpectation | string)[];
   dependencies?: (NeighbourExpectation | string)[];
@@ -107,16 +118,18 @@ export function parseWalk(text: string): Walk {
 }
 
 function screenExpectation(raw: unknown, where: string): ScreenExpectation {
-  const e = object(raw, where, ["focus", "tangle", "duplicates", "dependents", "dependencies", "absent"]);
+  const e = object(raw, where, ["focus", "tangle", "duplicates", "bypassedInterfaces", "typeSwitches", "dependents", "dependencies", "absent"]);
   const out: ScreenExpectation = {};
   if (e.focus !== undefined) out.focus = string(e.focus, `${where}.focus`);
   if (e.tangle !== undefined) {
     if (typeof e.tangle !== "number" || !Number.isInteger(e.tangle) || e.tangle < 0 || e.tangle === 1) throw new Error(`${where}.tangle must be 0 or a Tangle size of 2 or more`);
     out.tangle = e.tangle;
   }
-  if (e.duplicates !== undefined) {
-    if (typeof e.duplicates !== "number" || !Number.isInteger(e.duplicates) || e.duplicates < 0) throw new Error(`${where}.duplicates must be a count, 0 or more`);
-    out.duplicates = e.duplicates;
+  for (const key of ["duplicates", "bypassedInterfaces", "typeSwitches"] as const) {
+    const v = e[key];
+    if (v === undefined) continue;
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0) throw new Error(`${where}.${key} must be a count, 0 or more`);
+    out[key] = v;
   }
   for (const row of ROWS) {
     if (e[row] === undefined) continue;
@@ -137,7 +150,7 @@ function screenExpectation(raw: unknown, where: string): ScreenExpectation {
 
 function neighbour(raw: unknown, where: string): NeighbourExpectation {
   if (typeof raw === "string") return { name: raw };
-  const n = object(raw, where, ["name", "edge", "size", "cycle", "duplicate"]);
+  const n = object(raw, where, ["name", "edge", "size", "cycle", "duplicate", "bypassedInterface", "typeSwitch"]);
   const out: NeighbourExpectation = { name: string(n.name, `${where}.name`) };
   if (n.edge !== undefined) {
     const edge = string(n.edge, `${where}.edge`).toLowerCase() as EdgeKind;
@@ -153,9 +166,11 @@ function neighbour(raw: unknown, where: string): NeighbourExpectation {
     if (typeof n.cycle !== "boolean") throw new Error(`${where}.cycle must be true or false`);
     out.cycle = n.cycle;
   }
-  if (n.duplicate !== undefined) {
-    if (typeof n.duplicate !== "boolean") throw new Error(`${where}.duplicate must be true or false`);
-    out.duplicate = n.duplicate;
+  for (const key of ["duplicate", "bypassedInterface", "typeSwitch"] as const) {
+    const v = n[key];
+    if (v === undefined) continue;
+    if (typeof v !== "boolean") throw new Error(`${where}.${key} must be true or false`);
+    out[key] = v;
   }
   return out;
 }
@@ -232,6 +247,13 @@ function check(expect: ScreenExpectation | undefined, screen: Screen, nodes: Map
   const duplicates = screen.focus.duplicates?.length ?? 0;
   if (expect.duplicates !== undefined && duplicates !== expect.duplicates)
     problems.push(`${focus.name} has ${duplicates} ${duplicates === 1 ? "Duplicate" : "Duplicates"}, expected ${expect.duplicates}`);
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const bypassed = screen.focus.bypassedInterfaces?.length ?? 0;
+  if (expect.bypassedInterfaces !== undefined && bypassed !== expect.bypassedInterfaces)
+    problems.push(`${focus.name} has ${count(bypassed, "Bypassed interface", "Bypassed interfaces")}, expected ${expect.bypassedInterfaces}`);
+  const switches = screen.focus.typeSwitches?.length ?? 0;
+  if (expect.typeSwitches !== undefined && switches !== expect.typeSwitches)
+    problems.push(`${focus.name} has ${count(switches, "Type switch", "Type switches")}, expected ${expect.typeSwitches}`);
   for (const row of ROWS) {
     const items: Neighbour[] = screen[row];
     const rowNodes = items.map((n) => nodes.get(n.id)!);
@@ -252,6 +274,12 @@ function check(expect: ScreenExpectation | undefined, screen: Screen, nodes: Map
       const duplicate = n.hints?.some((h) => h.kind === "duplicate") ?? false;
       if (want.duplicate !== undefined && duplicate !== want.duplicate)
         problems.push(`${TITLE[row]}: ${hit[0].name} ${duplicate ? "holds" : "holds no"} Duplicate of a Focus member, expected ${want.duplicate ? "one" : "none"}`);
+      const bypass = n.hints?.some((h) => h.kind === "bypassed-interface") ?? false;
+      if (want.bypassedInterface !== undefined && bypass !== want.bypassedInterface)
+        problems.push(`${TITLE[row]}: ${hit[0].name}'s edge ${bypass ? "is" : "is not"} a Bypassed interface, expected ${want.bypassedInterface ? "one" : "none"}`);
+      const typeSwitch = n.hints?.some((h) => h.kind === "type-switch") ?? false;
+      if (want.typeSwitch !== undefined && typeSwitch !== want.typeSwitch)
+        problems.push(`${TITLE[row]}: ${hit[0].name}'s edge ${typeSwitch ? "is" : "is not"} part of a Type switch, expected ${want.typeSwitch ? "one" : "none"}`);
     }
     for (const name of expect.absent?.[row] ?? []) {
       const hit = matchIn(name, rowNodes);

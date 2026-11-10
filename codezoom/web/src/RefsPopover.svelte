@@ -64,7 +64,7 @@
           {/each}
         </ol>
       </div>
-    {:else}
+    {:else if h.kind === "duplicate"}
       <div class="hint">
         <div class="hint-head">≡ Holds a Duplicate of {focus.name}.{h.of}</div>
         <ol>
@@ -72,6 +72,30 @@
             <span class="hop">{node.name}.{h.member}</span>
             <span class="where">same shape, {h.nodes} syntax nodes · {baseName(files[h.file])}:{h.line}</span>
           </li>
+        </ol>
+      </div>
+    {:else if h.kind === "bypassed-interface"}
+      <div class="hint">
+        <div class="hint-head">△ {nameOf(h.holder)} keeps {nameOf(h.held)}, though it implements {h.interfaces.map(nameOf).join(", ")}</div>
+        <ol>
+          {#each h.fields as f, j (j)}
+            <li title="{files[f.file]}:{f.line}">
+              <span class="hop">{nameOf(h.holder)}.{f.member}</span>
+              <span class="where">a field or property of {nameOf(h.held)} · {baseName(files[f.file])}:{f.line}</span>
+            </li>
+          {/each}
+        </ol>
+      </div>
+    {:else}
+      <div class="hint">
+        <div class="hint-head">◇ {nameOf(h.type)}.{h.member} tests subtypes of {nameOf(h.base)}</div>
+        <ol>
+          {#each h.tests as t, j (j)}
+            <li title="{files[t.file]}:{t.line}">
+              <span class="hop">{nameOf(t.id)}</span>
+              <span class="where">tested · {baseName(files[t.file])}:{t.line}</span>
+            </li>
+          {/each}
         </ol>
       </div>
     {/if}

@@ -353,7 +353,10 @@
     {#if setupPage}
       <SetupPage onlyNew={setupPage.onlyNew} onSaved={afterSetup} />
     {:else if focusId === null}
-      <StartPage nodes={searchNodes} tangles={meta.tangles ?? []} duplicates={meta.duplicates ?? []} files={meta.files} query={initialQuery} onJump={jump} />
+      <StartPage nodes={searchNodes} tangles={meta.tangles ?? []} duplicates={meta.duplicates ?? []}
+        bypassed={meta.bypassedInterfaces ?? []}
+        switches={meta.typeSwitches ?? []}
+        files={meta.files} query={initialQuery} onJump={jump} />
     {:else if layers.length}
       {#if indexUpdate}
         <div class="notice" role="status">

@@ -64,8 +64,46 @@ export interface CycleHop {
 /**
  * A Hint on a neighbour. A Cycle (ADR 0008): one shortest Cycle through the Focus and this neighbour, Focus first
  * and last. A Duplicate (ADR 0009): one of this neighbour's members has the same shape as a Focus member, `of`.
+ * A Bypassed interface or a Type switch (ADR 0011) on the edge between the Focus and this neighbour, either way.
  */
-export type NeighbourHint = { kind: "cycle"; hops: CycleHop[] } | ({ kind: "duplicate"; of: string; nodes: number } & Omit<DuplicateMember, "id">);
+export type NeighbourHint =
+  | { kind: "cycle"; hops: CycleHop[] }
+  | ({ kind: "duplicate"; of: string; nodes: number } & Omit<DuplicateMember, "id">)
+  | ({ kind: "bypassed-interface" } & BypassedInterface)
+  | ({ kind: "type-switch" } & TypeSwitch);
+
+/** Where a member makes a Reference: As References name members, index into Meta.files, line. */
+export interface MemberAt {
+  member: string;
+  file: number;
+  line: number;
+}
+
+/** A type holding an own class in fields or properties although that class implements an own interface (ADR 0011). */
+export interface BypassedInterface {
+  /** The type with the fields. */
+  holder: string;
+  /** The own class they hold. */
+  held: string;
+  /** Its fields and properties of that class, Unity-serialized fields left out. */
+  fields: MemberAt[];
+  /** Own interfaces the held class implements and the holder doesn't: node ids. */
+  interfaces: string[];
+  /** sqrt(R x M) of the edge from holder to held. */
+  weight: number;
+}
+
+/** A member testing or casting against two or more own subtypes of one own base (ADR 0011). */
+export interface TypeSwitch {
+  /** The type whose member it is. */
+  type: string;
+  /** As References name members: `SlowFor()`. */
+  member: string;
+  /** The own class or interface the tested types share: a node id. */
+  base: string;
+  /** Each test of a subtype, in source order: the subtype's node id, index into Meta.files, line. */
+  tests: { id: string; file: number; line: number }[];
+}
 
 /** A Tangle (ADR 0008): its nodes, the ones with the most edges inside it first, each with that edge count. */
 export type Tangle = { id: string; inside: number }[];
@@ -109,6 +147,10 @@ export interface FocusMember {
   event: boolean;
   /** Its bodies that are Duplicates: indexes into FocusBox.duplicates. */
   duplicates?: number[];
+  /** A field or property behind Bypassed interfaces: indexes into FocusBox.bypassedInterfaces. */
+  bypassed?: number[];
+  /** A member that is a Type switch: indexes into FocusBox.typeSwitches. */
+  typeSwitches?: number[];
 }
 
 export interface FocusBox {
@@ -126,6 +168,10 @@ export interface FocusBox {
   asset?: { items: { text: string; own: boolean }[] };
   /** Its members that are Duplicates (ADR 0009), hidden ones too; absent when it has none. */
   duplicates?: FocusDuplicate[];
+  /** Own classes it holds although they implement an own interface (ADR 0011); absent when none. */
+  bypassedInterfaces?: BypassedInterface[];
+  /** Its members that are Type switches (ADR 0011); absent when none. */
+  typeSwitches?: TypeSwitch[];
 }
 
 export interface Screen {
@@ -155,6 +201,10 @@ export interface Meta {
   tangles: Tangle[];
   /** Every group of Duplicates (ADR 0009): the biggest body first, then the most members. */
   duplicates: DuplicateGroup[];
+  /** Every Bypassed interface (ADR 0011), heaviest Weight first. */
+  bypassedInterfaces: BypassedInterface[];
+  /** Every Type switch (ADR 0011), the most tested subtypes first. */
+  typeSwitches: TypeSwitch[];
   /** The editor "Open in …" launches, when one was found. */
   editor?: string | null;
   /** Goes up each time the index is rebuilt while the server runs. */

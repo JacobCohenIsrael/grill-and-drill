@@ -32,10 +32,10 @@ test("indexes TinyTowers to the known totals", () => {
     ["Assembly-CSharp", "TinyTowers.Core", "TinyTowers.Editor", "TinyTowers.Gameplay", "TinyTowers.UI"],
   );
   assert.equal(s.types, 48);
-  // 137 edges and 295 References between types; the rest start at its 13 assets (assets.test.mjs)
+  // 139 edges and 298 References between types; the rest start at its 13 assets (assets.test.mjs)
   assert.equal(s.assets, 13);
-  assert.equal(s.edges, 176);
-  assert.equal(s.references, 335);
+  assert.equal(s.edges, 178);
+  assert.equal(s.references, 338);
   assert.equal(s.libraries, 3);
   assert.equal(s.unresolved, 0);
 });
@@ -73,7 +73,7 @@ test("stale .csproj files: the folders decide the files, the .csproj lends its d
   const all = index.projects.flatMap((p) => p.compile).filter((f) => f.endsWith(".cs")).length;
   assert.equal(stale.project.notInCsproj, all - listed.length);
   const s = stale.screens.meta.stats;
-  assert.deepEqual([s.types, s.edges, s.references], [48, 176, 335], "every file is read, Gone.cs is not missed");
+  assert.deepEqual([s.types, s.edges, s.references], [48, 178, 338], "every file is read, Gone.cs is not missed");
   const defines = (name) => stale.projects.find((p) => p.assembly === name).defines;
   assert.ok(defines("TinyTowers.Gameplay").includes("TINYTOWERS_STALE"));
   assert.deepEqual(defines("TinyTowers.Core"), defines("TinyTowers.Gameplay"), "an assembly with no .csproj borrows the largest one's defines");

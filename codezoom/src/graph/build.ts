@@ -12,6 +12,10 @@ export interface Reference {
   typeLevel: boolean;
   file: string;
   line: number;
+  /** Declares a field or property of the type (the Has role). */
+  has?: boolean;
+  /** Tests or casts a value against the type (ADR 0011). */
+  test?: boolean;
 }
 
 export interface Edge {
@@ -47,6 +51,8 @@ export interface Graph {
   in: Map<string, Map<string, Edge>>;
   references: number;
   unresolved: Map<string, number>;
+  /** Files with an auto-generated header or [GeneratedCode]: in the graph, but no Hint comes from them. */
+  generated: Set<string>;
 }
 
 /** Strongest first; a type's kinds and an asset's never meet on one edge (ADR 0007), so one scale serves both. */
@@ -83,8 +89,9 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[], options: 
     else if (t.foreign && !t.foreign.isInterface) from.foreignBase = t.foreign;
   }
 
-  const graph: Graph = { types, libraries: new Map(), assets: new Map(), out: new Map(), in: new Map(), references: 0, unresolved: new Map() };
-  const seen = new Set<string>();
+  const generated = new Set(files.filter((f) => f.generated).map((f) => f.path));
+  const graph: Graph = { types, libraries: new Map(), assets: new Map(), out: new Map(), in: new Map(), references: 0, unresolved: new Map(), generated };
+  const seen = new Map<string, Reference>();
   const addRef = (r: RawRef, target: Target | null) => {
     const from = ownOf(r.from);
     if (!target) {
@@ -109,9 +116,20 @@ export function buildGraph(files: FileFacts[], foreign: ForeignType[], options: 
     const kind: EdgeKind =
       r.role === "base" ? (isInterface && from.kind !== "interface" ? "implements" : "inherits") : r.role === "has" ? "has" : "uses";
     const place = `${from.key}\u0000${to}\u0000${r.from.file}\u0000${r.line}`;
-    const fresh = !seen.has(place);
-    seen.add(place);
-    linkEdge(graph, from.key, to, kind, fresh ? { member: r.member, typeLevel: isTypeLevel(r.member, r.from.name), file: r.from.file, line: r.line } : null);
+    const has = r.role === "has";
+    const known = seen.get(place);
+    if (known) {
+      // one Reference per line; it keeps every role the line plays
+      if (has) known.has = true;
+      if (r.test) known.test = true;
+      linkEdge(graph, from.key, to, kind, null);
+      return;
+    }
+    const ref: Reference = { member: r.member, typeLevel: isTypeLevel(r.member, r.from.name), file: r.from.file, line: r.line };
+    if (has) ref.has = true;
+    if (r.test) ref.test = true;
+    seen.set(place, ref);
+    linkEdge(graph, from.key, to, kind, ref);
   };
 
   // `Outer.Inner` names Outer as well: a Uses Reference to each own type passed through

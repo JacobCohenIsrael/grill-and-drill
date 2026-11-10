@@ -1,0 +1,24 @@
+{
+  "name": "Bypassed interfaces: the sample program only creates the classes; every service holds the interfaces",
+  "start": "Program",
+  "expect": {
+    "focus": "Program",
+    "bypassedInterfaces": 0,
+    "typeSwitches": 0,
+    "dependencies": [
+      { "name": "InMemoryCatalog", "bypassedInterface": false },
+      { "name": "JsonOrderRepository", "bypassedInterface": false },
+      { "name": "OrderService", "bypassedInterface": false }
+    ]
+  },
+  "steps": [
+    {
+      "jump": "TinyShop.Orders.OrderService",
+      "expect": {
+        "focus": "OrderService",
+        "bypassedInterfaces": 0,
+        "dependencies": [{ "name": "IProductCatalog", "edge": "has", "bypassedInterface": false }]
+      }
+    }
+  ]
+}

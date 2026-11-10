@@ -1,0 +1,71 @@
+{
+  "name": "Bypassed interfaces and Type switches: a held class with an interface, a member testing two enemies",
+  "start": "TinyTowers.Enemies.Enemy",
+  "expect": {
+    "focus": "Enemy",
+    "bypassedInterfaces": 1,
+    "typeSwitches": 0,
+    "dependencies": [{ "name": "Health", "edge": "has", "bypassedInterface": true }],
+    "dependents": [{ "name": "EnemyRegistry", "bypassedInterface": true }, { "name": "EnemyConfig", "bypassedInterface": false }, { "name": "WaveSpawner", "bypassedInterface": false }],
+    "absent": { "dependents": ["FrostTower"] }
+  },
+  "steps": [
+    {
+      "drill": "Health",
+      "expect": {
+        "focus": "Health",
+        "bypassedInterfaces": 0,
+        "dependents": [{ "name": "Enemy", "bypassedInterface": true }, { "name": "Ogre", "bypassedInterface": false }]
+      }
+    },
+    {
+      "jump": "EnemyRegistry",
+      "expect": {
+        "focus": "EnemyRegistry",
+        "bypassedInterfaces": 1,
+        "typeSwitches": 0,
+        "dependencies": [{ "name": "Enemy", "bypassedInterface": true }, { "name": "Bat", "bypassedInterface": false, "typeSwitch": false }]
+      }
+    },
+    {
+      "jump": "EnemyConfig",
+      "expect": { "focus": "EnemyConfig", "bypassedInterfaces": 0, "dependencies": [{ "name": "Enemy", "bypassedInterface": false }] }
+    },
+    {
+      "jump": "CannonTower",
+      "expect": { "focus": "CannonTower", "bypassedInterfaces": 0, "dependencies": [{ "name": "FirstInRange", "bypassedInterface": false }] }
+    },
+    {
+      "jump": "FrostTower",
+      "expect": {
+        "focus": "FrostTower",
+        "typeSwitches": 1,
+        "bypassedInterfaces": 0,
+        "dependencies": [
+          { "name": "Bat", "typeSwitch": true },
+          { "name": "Ogre", "typeSwitch": true },
+          { "name": "Tower", "edge": "inherits", "typeSwitch": false }
+        ],
+        "absent": { "dependencies": ["Enemy"] }
+      }
+    },
+    {
+      "drill": "Ogre",
+      "expect": {
+        "focus": "Ogre",
+        "typeSwitches": 0,
+        "dependents": [{ "name": "FrostTower", "typeSwitch": true }],
+        "dependencies": [{ "name": "Enemy", "edge": "inherits", "typeSwitch": false }]
+      }
+    },
+    {
+      "jump": "TinyTowers.Towers.Tower",
+      "expect": {
+        "focus": "Tower",
+        "typeSwitches": 0,
+        "bypassedInterfaces": 0,
+        "dependencies": [{ "name": "Goblin", "typeSwitch": false }, { "name": "FurthestAlong", "bypassedInterface": false }]
+      }
+    }
+  ]
+}

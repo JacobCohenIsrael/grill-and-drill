@@ -5,7 +5,18 @@
 import type { Index } from "./indexer.js";
 import type { Screens } from "./graph/screens.js";
 import { findFocus, matchesName, search as searchNodes } from "./shared/search.js";
-import { isAssetKind, type CycleHop, type EdgeKind, type FocusMember, type Neighbour, type NodeInfo, type Screen } from "./shared/types.js";
+import {
+  isAssetKind,
+  type BypassedInterface,
+  type CycleHop,
+  type EdgeKind,
+  type FocusMember,
+  type MemberAt,
+  type Neighbour,
+  type NodeInfo,
+  type Screen,
+  type TypeSwitch,
+} from "./shared/types.js";
 import { orderBySize, sizeRow, type BoxSize, type Row } from "./shared/weight.js";
 import { CONFIG_FILE } from "./shared/ownRules.js";
 
@@ -14,8 +25,8 @@ export const SEARCH_LIMIT = 20;
 export const REFERENCE_LIMIT = 100;
 export const HINTS_LIMIT = 50;
 
-/** The kinds of Hint `hints` lists: Tangles and Cycles (ADR 0008), Duplicates (ADR 0009). */
-export const HINT_KINDS = ["cycle", "duplicate"] as const;
+/** The kinds of Hint `hints` lists: Tangles and Cycles (ADR 0008), Duplicates (ADR 0009), Bypassed interfaces and Type switches (ADR 0011). */
+export const HINT_KINDS = ["cycle", "duplicate", "bypassed-interface", "type-switch"] as const;
 export type HintKind = (typeof HINT_KINDS)[number];
 
 /** A question that has no answer as asked: no such node, two candidates, no such edge. */
@@ -60,8 +71,36 @@ export type CycleStep = { from: string; edge: EdgeKind; to: string; at: string }
 /**
  * The evidence behind a Hint on a neighbour. A Cycle: one shortest Cycle through the Focus and this neighbour,
  * Focus first and last. A Duplicate: this neighbour's `member`, declared `at`, has the same shape as the Focus's `of`.
+ * A Bypassed interface: `holder` keeps `held` in `fields` although `held` implements `interfaces`. A Type switch:
+ * `type`'s `member` tests subtypes of `base`.
  */
-export type HintEvidence = { hint: "cycle"; cycle: CycleStep[] } | { hint: "duplicate"; of: string; member: string; at: string; nodes: number };
+export type HintEvidence =
+  | { hint: "cycle"; cycle: CycleStep[] }
+  | { hint: "duplicate"; of: string; member: string; at: string; nodes: number }
+  | ({ hint: "bypassed-interface" } & BypassAnswer)
+  | ({ hint: "type-switch" } & SwitchAnswer);
+
+/** Where a member makes a Reference, path:line. */
+export interface MemberAtAnswer {
+  member: string;
+  at: string;
+}
+
+/** A Bypassed interface (ADR 0011): `holder` keeps the own class `held` in fields or properties although `held` implements own `interfaces` that `holder` doesn't. */
+export interface BypassAnswer {
+  holder: string;
+  held: string;
+  fields: MemberAtAnswer[];
+  interfaces: string[];
+}
+
+/** A Type switch (ADR 0011): `type`'s `member` tests or casts against two or more subtypes of `base`, each test `at`. */
+export interface SwitchAnswer {
+  type: string;
+  member: string;
+  base: string;
+  tests: { type: string; at: string }[];
+}
 
 /** A member of the Focus that is a Duplicate (ADR 0009): its body's size, its group, and the other members in that group. */
 export interface FocusDuplicateAnswer {
@@ -103,6 +142,10 @@ export interface ScreenAnswer {
     tangle: number;
     /** Its members whose bodies have the same shape as another own member's, hidden ones too; empty when none. */
     duplicates: FocusDuplicateAnswer[];
+    /** Own classes it keeps in fields or properties although they implement own interfaces; empty when none. */
+    bypassedInterfaces: BypassAnswer[];
+    /** Its members that test against two or more subtypes of one own base, hidden ones too; empty when none. */
+    typeSwitches: SwitchAnswer[];
   };
   dependents: RowAnswer;
   dependencies: RowAnswer;
@@ -123,7 +166,30 @@ export interface ReferencesAnswer {
   notes: string[];
 }
 
-export type HintsAnswer = CycleHintsAnswer | DuplicateHintsAnswer;
+export type HintsAnswer = CycleHintsAnswer | DuplicateHintsAnswer | BypassHintsAnswer | SwitchHintsAnswer;
+
+/** The paging every `hints` answer shares. */
+interface HintsPage {
+  /** Items with this Hint. */
+  total: number;
+  /** Items the filter keeps. */
+  matching: number;
+  offset: number;
+  shown: number;
+  notes: string[];
+}
+
+export interface BypassHintsAnswer extends HintsPage {
+  hint: "bypassed-interface";
+  /** Heaviest Weight first: how heavily the holder relies on the held class. */
+  items: (BypassAnswer & { holderFull: string; heldFull: string; weight: number })[];
+}
+
+export interface SwitchHintsAnswer extends HintsPage {
+  hint: "type-switch";
+  /** The most tested subtypes first. */
+  items: (SwitchAnswer & { typeFull: string; baseFull: string })[];
+}
 
 export interface CycleHintsAnswer {
   hint: "cycle";
@@ -237,6 +303,8 @@ export class Query {
             return { name: t.name, full: t.full, member: m.member, at: this.at(m.file, m.line) };
           }),
         })),
+        bypassedInterfaces: (box.bypassedInterfaces ?? []).map((b) => this.bypass(b)),
+        typeSwitches: (box.typeSwitches ?? []).map((s) => this.typeSwitch(s)),
       },
       dependents: this.row(screen, "dependents", page),
       dependencies: this.row(screen, "dependencies", page),
@@ -280,6 +348,8 @@ export class Query {
   hints(kind: string = "cycle", page: Page = {}): HintsAnswer {
     if (!(HINT_KINDS as readonly string[]).includes(kind)) throw new QueryError(`kind must be one of ${HINT_KINDS.join(", ")}`);
     if (kind === "duplicate") return this.duplicateHints(page);
+    if (kind === "bypassed-interface") return this.bypassHints(page);
+    if (kind === "type-switch") return this.switchHints(page);
     // edges from a type never reach an asset, so a Tangle is all types or all assets
     const tangles = this.screens.meta.tangles.filter((t) => page.assets !== false || !isAssetKind(this.nodes.get(t[0].id)!.kind));
     const all = tangles.flatMap((t, i) => t.map(({ id, inside }) => ({ node: this.nodes.get(id)!, number: i + 1, size: t.length, inside })));
@@ -320,6 +390,62 @@ export class Query {
       items: shown.map(({ m, node, number, nodes, size }) => ({ ...summary(node), member: m.member, at: this.at(m.file, m.line), group: { number, nodes, size } })),
       notes: this.notes,
     };
+  }
+
+  private bypassHints(page: Page): BypassHintsAnswer {
+    const all = this.screens.meta.bypassedInterfaces ?? [];
+    const q = page.filter?.trim().toLowerCase();
+    const kept = q
+      ? all.filter((b) => matchesName(this.nodes.get(b.holder)!, page.filter!) || matchesName(this.nodes.get(b.held)!, page.filter!) || b.fields.some((f) => f.member.toLowerCase().includes(q)))
+      : all;
+    const { offset, shown } = this.slice(kept, page);
+    return {
+      hint: "bypassed-interface",
+      total: all.length,
+      matching: kept.length,
+      offset,
+      shown: shown.length,
+      items: shown.map((b) => ({ ...this.bypass(b), holderFull: this.nodes.get(b.holder)!.full, heldFull: this.nodes.get(b.held)!.full, weight: b.weight })),
+      notes: this.notes,
+    };
+  }
+
+  private switchHints(page: Page): SwitchHintsAnswer {
+    const all = this.screens.meta.typeSwitches ?? [];
+    const q = page.filter?.trim().toLowerCase();
+    const kept = q ? all.filter((s) => matchesName(this.nodes.get(s.type)!, page.filter!) || matchesName(this.nodes.get(s.base)!, page.filter!) || s.member.toLowerCase().includes(q)) : all;
+    const { offset, shown } = this.slice(kept, page);
+    return {
+      hint: "type-switch",
+      total: all.length,
+      matching: kept.length,
+      offset,
+      shown: shown.length,
+      items: shown.map((s) => ({ ...this.typeSwitch(s), typeFull: this.nodes.get(s.type)!.full, baseFull: this.nodes.get(s.base)!.full })),
+      notes: this.notes,
+    };
+  }
+
+  private slice<T>(kept: T[], page: Page): { offset: number; shown: T[] } {
+    const offset = Math.max(0, Math.floor(page.offset ?? 0));
+    return { offset, shown: kept.slice(offset, offset + clamp(page.limit, HINTS_LIMIT)) };
+  }
+
+  private bypass(b: BypassedInterface): BypassAnswer {
+    return { holder: this.nodes.get(b.holder)!.name, held: this.nodes.get(b.held)!.name, fields: b.fields.map((f) => this.memberAt(f)), interfaces: b.interfaces.map((i) => this.nodes.get(i)!.name) };
+  }
+
+  private typeSwitch(s: TypeSwitch): SwitchAnswer {
+    return {
+      type: this.nodes.get(s.type)!.name,
+      member: s.member,
+      base: this.nodes.get(s.base)!.name,
+      tests: s.tests.map((t) => ({ type: this.nodes.get(t.id)!.name, at: this.at(t.file, t.line) })),
+    };
+  }
+
+  private memberAt(m: MemberAt): MemberAtAnswer {
+    return { member: m.member, at: this.at(m.file, m.line) };
   }
 
   /** The one node a name refers to, as the command line reads it. */
@@ -375,12 +501,18 @@ export class Query {
           referenceCount: n.count,
           memberCount: n.members,
           cycle: n.cycle,
-          hints: (n.hints ?? []).map(
-            (h): HintEvidence =>
-              h.kind === "cycle"
-                ? { hint: "cycle", cycle: h.hops.map((step) => this.step(step)) }
-                : { hint: "duplicate", of: h.of, member: h.member, at: this.at(h.file, h.line), nodes: h.nodes },
-          ),
+          hints: (n.hints ?? []).map((h): HintEvidence => {
+            switch (h.kind) {
+              case "cycle":
+                return { hint: "cycle", cycle: h.hops.map((step) => this.step(step)) };
+              case "duplicate":
+                return { hint: "duplicate", of: h.of, member: h.member, at: this.at(h.file, h.line), nodes: h.nodes };
+              case "bypassed-interface":
+                return { hint: "bypassed-interface", ...this.bypass(h) };
+              case "type-switch":
+                return { hint: "type-switch", ...this.typeSwitch(h) };
+            }
+          }),
           namespaceDistance: lib ? null : n.distance,
           file: lib || node.file === undefined ? null : this.at(node.file, node.line ?? 0),
         };
@@ -419,9 +551,17 @@ export function screenText(a: ScreenAnswer): string {
   if (f.file) lines.push(`  ${f.file}${f.parts.length ? ` (+${f.parts.length - 1} more parts)` : ""}`);
   for (const m of [...f.attributes, ...f.operations, ...(f.components ?? []), ...(f.fields ?? [])]) lines.push(`  ${m}`);
   if (f.private) lines.push(`  +${f.private} private`);
-  const marks = [f.tangle && `⟲ in a Tangle of ${f.tangle}`, f.duplicates.length && `≡ ${f.duplicates.length} ${f.duplicates.length === 1 ? "Duplicate" : "Duplicates"}`].filter(Boolean);
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const marks = [
+    f.tangle && `⟲ in a Tangle of ${f.tangle}`,
+    f.duplicates.length && `≡ ${count(f.duplicates.length, "Duplicate", "Duplicates")}`,
+    f.bypassedInterfaces.length && `△ ${count(f.bypassedInterfaces.length, "Bypassed interface", "Bypassed interfaces")}`,
+    f.typeSwitches.length && `◇ ${count(f.typeSwitches.length, "Type switch", "Type switches")}`,
+  ].filter(Boolean);
   if (marks.length) lines.push(`  ${marks.join("  ")}`);
   for (const d of f.duplicates) lines.push(`  ≡ ${d.member} (${d.nodes} nodes): ${d.duplicates.map((o) => `${o.name}.${o.member} ${o.at}`).join(", ")}`);
+  for (const b of f.bypassedInterfaces) lines.push(`  △ ${bypassLine(b)}`);
+  for (const s of f.typeSwitches) lines.push(`  ◇ ${switchLine(s)}`);
   for (const [title, row] of [["Dependents", a.dependents], ["Dependencies", a.dependencies]] as const) {
     const range = row.shown ? `${row.offset + 1}-${row.offset + row.shown} of ${row.matching}` : row.matching ? `none of ${row.matching}` : "none";
     lines.push(`${title}: ${range}${row.matching !== row.total ? ` matching (${row.total} in all)` : ""}`);
@@ -431,7 +571,9 @@ export function screenText(a: ScreenAnswer): string {
       lines.push(`  ${n.size.padEnd(6)}  ${n.name.padEnd(w)}  ${n.edge.padEnd(11)}  ${weight.padEnd(20)}${n.cycle ? "  cycle" : ""}${n.file ? `  ${n.file}` : ""}`);
       for (const h of n.hints) {
         if (h.hint === "cycle") lines.push(`          ⟲ ${[h.cycle[0].from, ...h.cycle.map((s) => s.to)].join(" → ")}`);
-        else lines.push(`          ≡ ${h.member} has the shape of ${h.of} (${h.nodes} nodes)  ${h.at}`);
+        else if (h.hint === "duplicate") lines.push(`          ≡ ${h.member} has the shape of ${h.of} (${h.nodes} nodes)  ${h.at}`);
+        else if (h.hint === "bypassed-interface") lines.push(`          △ ${bypassLine(h)}`);
+        else lines.push(`          ◇ ${switchLine(h)}`);
       }
     }
   }
@@ -439,7 +581,54 @@ export function screenText(a: ScreenAnswer): string {
 }
 
 export function hintsText(a: HintsAnswer): string {
-  return a.hint === "duplicate" ? duplicatesText(a) : tanglesText(a);
+  switch (a.hint) {
+    case "duplicate":
+      return duplicatesText(a);
+    case "bypassed-interface":
+      return bypassesText(a);
+    case "type-switch":
+      return switchesText(a);
+    default:
+      return tanglesText(a);
+  }
+}
+
+/** `Enemy keeps Health in health (…:10), though Health implements IDamageable` */
+function bypassLine(b: BypassAnswer): string {
+  const fields = b.fields.map((f) => `${f.member} (${f.at})`).join(", ");
+  return `${b.holder} keeps ${b.held} in ${fields}, though ${b.held} implements ${b.interfaces.join(", ")}`;
+}
+
+/** `FrostTower.SlowFor() tests Bat, Ogre, subtypes of Enemy: Bat …:24, Ogre …:25` */
+function switchLine(s: SwitchAnswer): string {
+  const types = [...new Set(s.tests.map((t) => t.type))];
+  return `${s.type}.${s.member} tests ${types.join(", ")}, subtypes of ${s.base}: ${s.tests.map((t) => `${t.type} ${t.at}`).join(", ")}`;
+}
+
+function pageLine(a: HintsPage): string[] {
+  return a.total ? [`Showing ${a.shown ? `${a.offset + 1}-${a.offset + a.shown}` : "none"} of ${a.matching}${a.matching !== a.total ? ` matching (${a.total} in all)` : ""}`] : [];
+}
+
+function bypassesText(a: BypassHintsAnswer): string {
+  const lines = [
+    a.total
+      ? `${a.total} ${a.total === 1 ? "Bypassed interface" : "Bypassed interfaces"}: own classes kept in fields or properties although they implement an own interface`
+      : "No Bypassed interfaces: no field or property keeps an own class that implements an own interface",
+    ...pageLine(a),
+  ];
+  for (const b of a.items) lines.push(`  △ ${bypassLine(b)}  (W ${b.weight})`);
+  return withNotes(lines, a.notes);
+}
+
+function switchesText(a: SwitchHintsAnswer): string {
+  const lines = [
+    a.total
+      ? `${a.total} ${a.total === 1 ? "Type switch" : "Type switches"}: members testing two or more subtypes of one own base`
+      : "No Type switches: no member tests two or more own subtypes of one own base",
+    ...pageLine(a),
+  ];
+  for (const s of a.items) lines.push(`  ◇ ${switchLine(s)}`);
+  return withNotes(lines, a.notes);
 }
 
 function tanglesText(a: CycleHintsAnswer): string {

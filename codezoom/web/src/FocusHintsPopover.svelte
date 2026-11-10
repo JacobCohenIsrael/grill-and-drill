@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { FocusDuplicate, NodeInfo } from "../../src/shared/types";
+  import type { NodeInfo } from "../../src/shared/types";
+  import type { FocusHints } from "./hints";
 
   interface Props {
-    /** The Focus members shown: one when hovering a member's ≡, all of them from the hint line. */
-    items: FocusDuplicate[];
+    /** What to list: one member's tags, or one part of the hint line. */
+    hints: FocusHints;
     focus: NodeInfo;
     nodes: Map<string, NodeInfo>;
     anchor: DOMRect;
@@ -12,7 +13,7 @@
     onEnter: () => void;
     onLeave: () => void;
   }
-  let { items, focus, nodes, anchor, files, onJump, onEnter, onLeave }: Props = $props();
+  let { hints, focus, nodes, anchor, files, onJump, onEnter, onLeave }: Props = $props();
 
   const WIDTH = 420;
   const left = $derived(Math.max(8, Math.min(anchor.left, window.innerWidth - WIDTH - 8)));
@@ -27,9 +28,23 @@
   const nameOf = (id: string) => nodes.get(id)?.name ?? id;
 </script>
 
+{#snippet jump(id: string, text: string, where: string, title: string)}
+  {#if id === focus.id}
+    <div class="row" {title}>
+      <span class="member">{text}</span>
+      <span class="where">{where}</span>
+    </div>
+  {:else}
+    <button class="row" onclick={() => onJump(id)} title="Jump to {nodes.get(id)?.full ?? id}&#10;{title}">
+      <span class="member">{text}</span>
+      <span class="where">{where}</span>
+    </button>
+  {/if}
+{/snippet}
+
 <div class="pop" {style} role="tooltip" onmouseenter={onEnter} onmouseleave={onLeave}>
-  {#each items as d, i (i)}
-    <div class="dup">
+  {#each hints.duplicates ?? [] as d, i (i)}
+    <div class="hint">
       <div class="head" title="{files[d.file]}:{d.line}">
         ≡ <strong>{focus.name}.{d.member}</strong>
         <span class="size">{d.nodes} syntax nodes, group {d.group}</span>
@@ -38,19 +53,46 @@
       <ul>
         {#each d.duplicates as m, j (j)}
           <li>
-            {#if m.id === focus.id}
-              <div class="row" title="In {focus.name} itself&#10;{files[m.file]}:{m.line}">
-                <span class="member">{focus.name}.{m.member}</span>
-                <span class="where">{baseName(files[m.file])}:{m.line}</span>
-              </div>
-            {:else}
-              <button class="row" onclick={() => onJump(m.id)} title="Jump to {nodes.get(m.id)?.full ?? m.id}&#10;{files[m.file]}:{m.line}">
-                <span class="member">{nameOf(m.id)}.{m.member}</span>
-                <span class="where">{baseName(files[m.file])}:{m.line}</span>
-              </button>
-            {/if}
+            {@render jump(m.id, `${nameOf(m.id)}.${m.member}`, `${baseName(files[m.file])}:${m.line}`, `${files[m.file]}:${m.line}`)}
           </li>
         {/each}
+      </ul>
+    </div>
+  {/each}
+  {#each hints.bypassed ?? [] as b, i (i)}
+    <div class="hint">
+      <div class="head">
+        △ <strong>{focus.name} keeps {nameOf(b.held)}</strong>
+      </div>
+      <div class="sub">In these fields and properties, though {nameOf(b.held)} implements an interface:</div>
+      <ul>
+        {#each b.fields as f, j (j)}
+          <li>
+            <div class="row" title="{files[f.file]}:{f.line}">
+              <span class="member">{focus.name}.{f.member}</span>
+              <span class="where">{baseName(files[f.file])}:{f.line}</span>
+            </div>
+          </li>
+        {/each}
+        <li>{@render jump(b.held, nameOf(b.held), "the class", nodes.get(b.held)?.full ?? b.held)}</li>
+        {#each b.interfaces as id (id)}
+          <li>{@render jump(id, nameOf(id), "its interface", nodes.get(id)?.full ?? id)}</li>
+        {/each}
+      </ul>
+    </div>
+  {/each}
+  {#each hints.switches ?? [] as s, i (i)}
+    <div class="hint">
+      <div class="head">
+        ◇ <strong>{focus.name}.{s.member}</strong>
+        <span class="size">tests {new Set(s.tests.map((t) => t.id)).size} subtypes of {nameOf(s.base)}</span>
+      </div>
+      <div class="sub">Each test or cast, where it is:</div>
+      <ul>
+        {#each s.tests as t, j (j)}
+          <li>{@render jump(t.id, nameOf(t.id), `${baseName(files[t.file])}:${t.line}`, `${files[t.file]}:${t.line}`)}</li>
+        {/each}
+        <li>{@render jump(s.base, nameOf(s.base), "their base", nodes.get(s.base)?.full ?? s.base)}</li>
       </ul>
     </div>
   {/each}
@@ -68,14 +110,14 @@
     box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
     padding: 8px 10px;
   }
-  .dup {
+  .hint {
     padding: 6px 8px;
     border-left: 2px solid var(--cycle);
     background: color-mix(in srgb, var(--cycle) 8%, transparent);
     border-radius: 0 4px 4px 0;
     font-size: 12px;
   }
-  .dup + .dup {
+  .hint + .hint {
     margin-top: 6px;
   }
   .head {

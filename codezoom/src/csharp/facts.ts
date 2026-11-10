@@ -62,6 +62,10 @@ export interface MemberDecl {
   isAbstract: boolean;
   serialized: boolean;
   line: number;
+  /** A readonly field, which Unity never serializes. */
+  readonly?: boolean;
+  /** A field marked [NonSerialized]. */
+  nonSerialized?: boolean;
   /**
    * Its bodies of MIN_SHAPE_NODES syntax nodes or more: one for a method, or
    * one per accessor. Absent when there are none, and in a generated file.
@@ -108,6 +112,8 @@ export interface RawRef {
   scope: Scope;
   methodTypeParams: string[] | null;
   locals: Set<string> | null;
+  /** Tests or casts a value against the type: `is`, `as`, a cast, a pattern, a `switch` case (ADR 0011). */
+  test?: boolean;
 }
 
 export interface FileFacts {

@@ -34,6 +34,8 @@ interface Ctx {
   member: string;
   methodTypeParams: string[] | null;
   locals: Set<string> | null;
+  /** Inside a type test or cast: `is`, `as`, a pattern, a `switch` case (ADR 0011). */
+  test?: boolean;
 }
 
 const TYPE_DECLARATIONS: Record<string, TypeKind> = {
@@ -73,6 +75,16 @@ const TYPE_FIELDS = new Set([
   "refvalue_expression.type",
   "ref_type.type",
   "explicit_interface_specifier.",
+]);
+
+/** The TYPE_FIELDS that test a value's type or cast it: their References are tests (ADR 0011). */
+const TEST_FIELDS = new Set([
+  "cast_expression.type",
+  "as_expression.right",
+  "is_expression.right",
+  "declaration_pattern.type",
+  "recursive_pattern.type",
+  "type_pattern.type",
 ]);
 
 /** `parent.field` pairs whose identifier child declares a local name. */
@@ -466,6 +478,7 @@ class Reader {
     }
     const access = accessOf(mods, decl.kind, explicitInterface !== null);
     const serialized = attrs.some((a) => hasSerializeAttribute(a));
+    const nonSerialized = attrs.some((a) => hasAttributeNamed(a, /^NonSerialized(Attribute)?$/));
     const t = node.type;
 
     const run = (label: string, fn: (c: Ctx) => void) => {
@@ -492,7 +505,7 @@ class Reader {
           }
         });
         for (let i = 0; i < declarators.length; i++) {
-          decl.members.push(member(kind, names[i], typeNode ? compact(typeNode.text) : null, null, access, mods, serialized, declarators[i]));
+          decl.members.push(member(kind, names[i], typeNode ? compact(typeNode.text) : null, null, access, mods, serialized, declarators[i], nonSerialized));
         }
         return;
       }
@@ -671,7 +684,8 @@ class Reader {
       case "alias_qualified_name": {
         const name = nameSyntax(node);
         if (name) this.ref(name, ctx, role, node, false, false);
-        this.typeArgsOf(node, ctx, argRole);
+        // `x is List<Goblin>` tests a List, not a Goblin
+        this.typeArgsOf(node, ctx.test ? { ...ctx, test: false } : ctx, argRole);
         return;
       }
       case "predefined_type":
@@ -864,8 +878,9 @@ class Reader {
         ctx.locals?.add(c.text);
         continue;
       }
-      if (TYPE_FIELDS.has(key)) this.type(c, ctx, "uses");
-      else this.expr(c, ctx);
+      if (TYPE_FIELDS.has(key)) this.type(c, TEST_FIELDS.has(key) ? { ...ctx, test: true } : ctx, "uses");
+      // `x is Goblin`, `case Bat:`: a type name parses as a constant pattern
+      else this.expr(c, t === "constant_pattern" ? { ...ctx, test: true } : ctx);
     }
   }
 
@@ -908,6 +923,7 @@ class Reader {
       methodTypeParams: ctx.methodTypeParams,
       locals: ctx.locals,
     };
+    if (ctx.test) r.test = true;
     this.facts.refs.push(r);
   }
 }
@@ -973,12 +989,16 @@ function accessOf(mods: string[], kind: TypeKind, explicitInterface: boolean): A
 }
 
 function hasSerializeAttribute(list: Node): boolean {
+  return hasAttributeNamed(list, /^(SerializeField|SerializeReference)(Attribute)?$/);
+}
+
+/** An attribute in the list whose last name segment matches. */
+function hasAttributeNamed(list: Node, pattern: RegExp): boolean {
   for (const a of list.namedChildren) {
     if (a.type !== "attribute") continue;
     const n = a.childForFieldName("name");
     const name = n ? nameSyntax(n) : null;
-    const last = name?.segs[name.segs.length - 1].name ?? "";
-    if (/^(SerializeField|SerializeReference)(Attribute)?$/.test(last)) return true;
+    if (pattern.test(name?.segs[name.segs.length - 1].name ?? "")) return true;
   }
   return false;
 }
@@ -992,6 +1012,7 @@ function member(
   mods: string[],
   serialized: boolean,
   node: Node,
+  nonSerialized = false,
 ): MemberDecl {
   return {
     kind,
@@ -1003,5 +1024,8 @@ function member(
     isAbstract: mods.includes("abstract"),
     serialized: serialized && (kind === "field" || kind === "property"),
     line: node.startPosition.row + 1,
+    // what Unity's rule for public fields needs (ADR 0011)
+    ...(kind === "field" && mods.includes("readonly") ? { readonly: true } : {}),
+    ...(kind === "field" && nonSerialized ? { nonSerialized: true } : {}),
   };
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { DuplicateGroup, NodeInfo, Tangle } from "../../src/shared/types";
+  import type { BypassedInterface, DuplicateGroup, NodeInfo, Tangle, TypeSwitch } from "../../src/shared/types";
   import Search from "./Search.svelte";
 
   interface Props {
@@ -10,11 +10,14 @@
     tangles: Tangle[];
     /** Every group of Duplicates, biggest body first (ADR 0009). */
     duplicates: DuplicateGroup[];
+    /** Every Bypassed interface, heaviest Weight first, and every Type switch (ADR 0011). */
+    bypassed: BypassedInterface[];
+    switches: TypeSwitch[];
     files: string[];
     query: string;
     onJump: (id: string) => void;
   }
-  let { nodes, tangles, duplicates, files, query, onJump }: Props = $props();
+  let { nodes, tangles, duplicates, bypassed, switches, files, query, onJump }: Props = $props();
   /** Names shown per Tangle or group before "+N more". */
   const NAMES = 6;
   /** Tangles and groups listed. */
@@ -31,6 +34,9 @@
   // a Tangle is all types or all assets: hidden assets take their Tangles with them
   const shownTangles = $derived(tangles.filter((t) => byId.has(t[0].id)).slice(0, LISTED));
   const shownGroups = $derived(duplicates.slice(0, LISTED));
+  const shownBypassed = $derived(bypassed.slice(0, LISTED));
+  const shownSwitches = $derived(switches.slice(0, LISTED));
+  const nameOf = (id: string) => byId.get(id)?.name ?? id;
 </script>
 
 <main>
@@ -85,6 +91,45 @@
       {/if}
     {:else}
       <p class="none">None: no two own members of 50 syntax nodes or more have the same shape.</p>
+    {/if}
+    <h2>Bypassed interfaces <span>(own classes kept in fields or properties although they implement an own interface)</span></h2>
+    {#if shownBypassed.length}
+      <ul class="tangles dups">
+        {#each shownBypassed as b, i (i)}
+          <li>
+            <span class="size" title="Weight {b.weight}">△</span>
+            <button onclick={() => onJump(b.holder)} title="{byId.get(b.holder)?.full ?? b.holder}&#10;{files[b.fields[0].file]}:{b.fields[0].line}"
+              >{nameOf(b.holder)}.{b.fields.map((f) => f.member).join(", ")}</button
+            >
+            <span class="more">keeps</span>
+            <button onclick={() => onJump(b.held)} title={byId.get(b.held)?.full ?? b.held}>{nameOf(b.held)}</button>
+            <span class="more">rather than {b.interfaces.map(nameOf).join(", ")}</span>
+          </li>
+        {/each}
+      </ul>
+      {#if bypassed.length > shownBypassed.length}
+        <p class="none">+{bypassed.length - shownBypassed.length} more: <code>codezoom hints --kind bypassed-interface</code> lists them all.</p>
+      {/if}
+    {:else}
+      <p class="none">None: no field or property keeps an own class that implements an own interface.</p>
+    {/if}
+    <h2>Type switches <span>(members testing two or more subtypes of one own base)</span></h2>
+    {#if shownSwitches.length}
+      <ul class="tangles dups">
+        {#each shownSwitches as s, i (i)}
+          <li>
+            <span class="size">◇</span>
+            <button onclick={() => onJump(s.type)} title="{byId.get(s.type)?.full ?? s.type}&#10;{files[s.tests[0].file]}:{s.tests[0].line}">{nameOf(s.type)}.{s.member}</button>
+            <span class="more">tests {[...new Set(s.tests.map((t) => nameOf(t.id)))].join(", ")}: subtypes of</span>
+            <button onclick={() => onJump(s.base)} title={byId.get(s.base)?.full ?? s.base}>{nameOf(s.base)}</button>
+          </li>
+        {/each}
+      </ul>
+      {#if switches.length > shownSwitches.length}
+        <p class="none">+{switches.length - shownSwitches.length} more: <code>codezoom hints --kind type-switch</code> lists them all.</p>
+      {/if}
+    {:else}
+      <p class="none">None: no member tests two or more own subtypes of one own base.</p>
     {/if}
   {/if}
 </main>

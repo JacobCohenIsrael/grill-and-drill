@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { isAssetKind, type EdgeKind, type FocusDuplicate, type Neighbour, type NodeInfo, type RefWire, type Screen } from "../../src/shared/types";
-  import DuplicatesPopover from "./DuplicatesPopover.svelte";
+  import { isAssetKind, type EdgeKind, type Neighbour, type NodeInfo, type RefWire, type Screen } from "../../src/shared/types";
+  import FocusHintsPopover from "./FocusHintsPopover.svelte";
+  import type { FocusHints } from "./hints";
   import FocusBox from "./FocusBox.svelte";
   import Row from "./Row.svelte";
   import RefsPopover from "./RefsPopover.svelte";
@@ -16,7 +17,7 @@
     previousId: string | null;
     onDrill: (id: string, box?: Element) => void;
     onBack: () => void;
-    /** A Duplicate in the hover list was clicked: its type becomes the Focus. */
+    /** A type in the Focus's Hint hover list was clicked: it becomes the Focus. */
     onJump?: (id: string) => void;
     onOpenSource?: () => void;
     /** The References behind the hovered neighbour's edge, or null. */
@@ -57,13 +58,13 @@
       }, 140);
   }
 
-  // ---- hover: the Focus's Duplicates (ADR 0009) ----
-  let dupHover = $state.raw<{ items: FocusDuplicate[]; anchor: DOMRect } | null>(null);
-  let dupTimer: ReturnType<typeof setTimeout> | undefined;
-  function hoverDuplicates(items: FocusDuplicate[] | null, anchor: DOMRect | null) {
-    clearTimeout(dupTimer);
-    if (items?.length && anchor) dupHover = { items, anchor };
-    else dupTimer = setTimeout(() => (dupHover = null), 160);
+  // ---- hover: the Focus's Duplicates, Bypassed interfaces and Type switches (ADR 0009, 0011) ----
+  let hintHover = $state.raw<{ hints: FocusHints; anchor: DOMRect } | null>(null);
+  let hintTimer: ReturnType<typeof setTimeout> | undefined;
+  function hoverHints(hints: FocusHints | null, anchor: DOMRect | null) {
+    clearTimeout(hintTimer);
+    if (hints && anchor) hintHover = { hints, anchor };
+    else hintTimer = setTimeout(() => (hintHover = null), 160);
   }
 
   function pick(box: Box, el: Element) {
@@ -241,7 +242,7 @@
   />
 
   <div class="middle">
-    <FocusBox node={focus} box={screen.focus} {files} bind:boxEl={focusEl} {onOpenSource} onDuplicates={hoverDuplicates} />
+    <FocusBox node={focus} box={screen.focus} {files} bind:boxEl={focusEl} {onOpenSource} onHints={hoverHints} />
     <div class="legend" aria-label="Edge kinds">
       <svg width="250" height={legend.length * 15 + 4}>
         {#each legend as [kind, label], i (kind)}
@@ -287,19 +288,19 @@
   />
 {/if}
 
-{#if dupHover}
-  <DuplicatesPopover
-    items={dupHover.items}
+{#if hintHover}
+  <FocusHintsPopover
+    hints={hintHover.hints}
     {focus}
     {nodes}
-    anchor={dupHover.anchor}
+    anchor={hintHover.anchor}
     {files}
     onJump={(id) => {
-      dupHover = null;
+      hintHover = null;
       onJump?.(id);
     }}
-    onEnter={() => clearTimeout(dupTimer)}
-    onLeave={() => hoverDuplicates(null, null)}
+    onEnter={() => clearTimeout(hintTimer)}
+    onLeave={() => hoverHints(null, null)}
   />
 {/if}
 

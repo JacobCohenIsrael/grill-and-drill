@@ -210,7 +210,7 @@ test("mcp hints: every node in a Tangle, biggest Tangle first, code before asset
     assert.deepEqual([code.total, code.matching, code.offset, code.shown], [6, 2, 1, 1]);
     assert.deepEqual(code.items.map((n) => `${n.name} ${n.tangle.number}`), ["TowerConfig 2"]);
 
-    assert.match((await call("hints", { kind: "smell" })).error, /kind must be one of cycle, duplicate/);
+    assert.match((await call("hints", { kind: "smell" })).error, /kind must be one of cycle, duplicate, bypassed-interface, type-switch/);
   });
 });
 
@@ -265,6 +265,61 @@ test("mcp screen: the Focus's Duplicates, and a neighbour holding one", async ()
   });
 });
 
+test("mcp hints kinds bypassed-interface and type-switch: the fields, interfaces, tests and base", async () => {
+  await withServer(async ({ call }) => {
+    const bypassed = await call("hints", { kind: "bypassed-interface" });
+    assert.equal(bypassed.hint, "bypassed-interface");
+    assert.deepEqual([bypassed.total, bypassed.matching, bypassed.offset, bypassed.shown], [2, 2, 0, 2]);
+    assert.deepEqual(bypassed.items[0], {
+      holder: "Enemy",
+      held: "Health",
+      fields: [{ member: "health", at: "Assets/TinyTowers/Gameplay/Enemies/Enemy.cs:10" }],
+      interfaces: ["IDamageable"],
+      holderFull: "TinyTowers.Enemies.Enemy",
+      heldFull: "TinyTowers.Core.Health",
+      weight: 4,
+    });
+    // the filter matches the holder, the held class, or a field
+    assert.deepEqual((await call("hints", { kind: "bypassed-interface", filter: "alive" })).items.map((b) => `${b.holder} ${b.held}`), ["EnemyRegistry Enemy"]);
+    assert.deepEqual((await call("hints", { kind: "bypassed-interface", filter: "Health" })).items.map((b) => b.holder), ["Enemy"]);
+
+    const switches = await call("hints", { kind: "type-switch" });
+    assert.deepEqual(switches.items, [
+      {
+        type: "FrostTower",
+        member: "SlowFor()",
+        base: "Enemy",
+        tests: [
+          { type: "Bat", at: "Assets/TinyTowers/Gameplay/Towers/FrostTower.cs:24" },
+          { type: "Ogre", at: "Assets/TinyTowers/Gameplay/Towers/FrostTower.cs:25" },
+        ],
+        typeFull: "TinyTowers.Towers.FrostTower",
+        baseFull: "TinyTowers.Enemies.Enemy",
+      },
+    ]);
+    assert.equal((await call("hints", { kind: "type-switch", filter: "Wallet" })).matching, 0);
+  });
+});
+
+test("mcp screen: the Focus's Bypassed interfaces and Type switches, and the neighbour on each edge", async () => {
+  await withServer(async ({ call }) => {
+    const enemy = await call("screen", { focus: "TinyTowers.Enemies.Enemy" });
+    const evidence = { holder: "Enemy", held: "Health", fields: [{ member: "health", at: "Assets/TinyTowers/Gameplay/Enemies/Enemy.cs:10" }], interfaces: ["IDamageable"] };
+    assert.deepEqual(enemy.focus.bypassedInterfaces, [evidence]);
+    assert.deepEqual(enemy.focus.typeSwitches, []);
+    assert.deepEqual(enemy.dependencies.items.find((n) => n.name === "Health").hints, [{ hint: "bypassed-interface", ...evidence }]);
+    // the held class's own Focus counts none; the holder carries the mark in its row
+    const health = await call("screen", { focus: "Health" });
+    assert.deepEqual(health.focus.bypassedInterfaces, []);
+    assert.deepEqual(health.dependents.items.find((n) => n.name === "Enemy").hints, [{ hint: "bypassed-interface", ...evidence }]);
+
+    const frost = await call("screen", { focus: "FrostTower" });
+    assert.deepEqual(frost.focus.typeSwitches.map((s) => `${s.member} on ${s.base}`), ["SlowFor() on Enemy"]);
+    const ogre = await call("screen", { focus: "Ogre" });
+    assert.deepEqual(ogre.dependents.items.find((n) => n.name === "FrostTower").hints.map((h) => `${h.hint} ${h.type}.${h.member}`), ["type-switch FrostTower.SlowFor()"]);
+  });
+});
+
 test("mcp screen: the Focus's Tangle, and each Cycle hop by hop", async () => {
   await withServer(async ({ call }) => {
     const bat = await call("screen", { focus: "Bat" });
@@ -307,6 +362,8 @@ test("--json answers exactly as the tools do", async () => {
     assert.deepEqual(cliJson("references", "Tower", "TowerConfig").out, await call("references", { from: "Tower", to: "TowerConfig" }));
     assert.deepEqual(cliJson("hints", "--limit", "3", "--no-assets").out, await call("hints", { limit: 3, assets: false }));
     assert.deepEqual(cliJson("hints", "--kind", "duplicate", "--filter", "Tower").out, await call("hints", { kind: "duplicate", filter: "Tower" }));
+    assert.deepEqual(cliJson("hints", "--kind", "type-switch").out, await call("hints", { kind: "type-switch" }));
+    assert.deepEqual(cliJson("hints", "--kind", "bypassed-interface", "--limit", "1").out, await call("hints", { kind: "bypassed-interface", limit: 1 }));
   });
   const miss = cliJson("screen", "NoSuchType");
   assert.equal(miss.code, 1);

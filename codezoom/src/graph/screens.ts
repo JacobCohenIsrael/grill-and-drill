@@ -5,6 +5,7 @@ import type { MemberDecl } from "../csharp/facts.js";
 import type { OwnType } from "../csharp/resolver.js";
 import {
   isAssetKind,
+  type BypassedInterface,
   type CycleHop,
   type DuplicateGroup,
   type DuplicateMember,
@@ -17,11 +18,13 @@ import {
   type NodeInfo,
   type Screen,
   type Tangle,
+  type TypeSwitch,
   type Visibility,
 } from "../shared/types.js";
 import type { Edge, Graph } from "./build.js";
-import { findDuplicates, type Body } from "./duplicates.js";
+import { findDuplicates, memberLabel, type Body } from "./duplicates.js";
 import { findTangles, shortestCycles } from "./hints.js";
+import { findReaderHints } from "./readerHints.js";
 
 /** Distance given to foreign libraries so they sort after every own type and asset. */
 const FOREIGN_DISTANCE = 1000;
@@ -145,6 +148,33 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
   });
   for (const list of bodiesOf.values()) list.sort((a, b) => a.body.file.localeCompare(b.body.file) || a.body.line - b.body.line);
 
+  // Bypassed interfaces and Type switches (ADR 0011), each on the edge it belongs to
+  const found = findReaderHints(graph);
+  const weightOf = (e: Edge) => Math.round(Math.sqrt(e.refs.length * new Set(e.refs.map((r) => (r.typeLevel ? "\u0000declaration" : r.member))).size) * 10) / 10;
+  const byName = (a: string, b: string) => compareNames(info.get(a)!.name, info.get(b)!.name);
+  const bypassedInterfaces: BypassedInterface[] = found.bypasses
+    .map((b) => ({
+      holder: b.holder.key,
+      held: b.held.key,
+      fields: b.fields.map((r) => ({ member: r.member, file: fileId(r.file), line: r.line })),
+      interfaces: b.interfaces.map((i) => i.key),
+      weight: weightOf(b.edge),
+    }))
+    .sort((a, b) => b.weight - a.weight || byName(a.holder, b.holder) || byName(a.held, b.held));
+  const subtypesOf = (s: TypeSwitch) => new Set(s.tests.map((t) => t.id)).size;
+  const typeSwitches: TypeSwitch[] = found.switches
+    .map((s) => ({ type: s.type.key, member: s.member, base: s.base.key, tests: s.tests.map((t) => ({ id: t.target.key, file: fileId(t.ref.file), line: t.ref.line })) }))
+    .sort((a, b) => subtypesOf(b) - subtypesOf(a) || b.tests.length - a.tests.length || byName(a.type, b.type) || compareNames(a.member, b.member));
+  const edgeKey = (from: string, to: string) => `${from}\u0000${to}`;
+  const bypassOn = new Map(bypassedInterfaces.map((b) => [edgeKey(b.holder, b.held), b]));
+  const switchesOn = new Map<string, TypeSwitch[]>();
+  for (const s of typeSwitches) {
+    for (const id of new Set(s.tests.map((t) => t.id))) {
+      const key = edgeKey(s.type, id);
+      switchesOn.set(key, [...(switchesOn.get(key) ?? []), s]);
+    }
+  }
+
   const json = new Map<string, string>();
   for (const n of nodes) {
     const outgoing = [...(graph.out.get(n.id)?.values() ?? [])];
@@ -166,7 +196,13 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
           const o = info.get(id)!;
           const members = new Set(e.refs.map((r) => (r.typeLevel ? "\u0000declaration" : r.member))).size;
           const cycle = onCycle?.get(id);
-          const hints: NeighbourHint[] = [...(cycle ? [{ kind: "cycle" as const, hops: hops(cycle) }] : []), ...duplicateHints(id)];
+          const bypass = bypassOn.get(edgeKey(e.from, e.to));
+          const hints: NeighbourHint[] = [
+            ...(cycle ? [{ kind: "cycle" as const, hops: hops(cycle) }] : []),
+            ...duplicateHints(id),
+            ...(bypass ? [{ kind: "bypassed-interface" as const, ...bypass }] : []),
+            ...(switchesOn.get(edgeKey(e.from, e.to)) ?? []).map((s) => ({ kind: "type-switch" as const, ...s })),
+          ];
           return {
             id,
             edge: e.kind,
@@ -195,6 +231,8 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
               decl: body.decl,
               duplicate: { member: body.member, file: fileId(body.file), line: body.line, group: group + 1, nodes: body.nodes, duplicates: groups[group].filter((o) => o !== body).map(wire) },
             })),
+            bypassedInterfaces.filter((b) => b.holder === n.id).sort((a, b) => byName(a.held, b.held)),
+            typeSwitches.filter((s) => s.type === n.id).sort((a, b) => a.tests[0].file - b.tests[0].file || a.tests[0].line - b.tests[0].line),
           )
         : asset
           ? { id: n.id, attributes: [], operations: [], hidden: 0, file: fileId(asset.path), line: 1, parts: [], assembly: "", asset: { items: asset.box } }
@@ -204,7 +242,7 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
     };
     json.set(n.id, JSON.stringify(screen));
   }
-  return { meta: { project, nodes, files, stats, tangles, duplicates }, json };
+  return { meta: { project, nodes, files, stats, tangles, duplicates, bypassedInterfaces, typeSwitches }, json };
 }
 
 export function namespaceDistance(a: string, b: string): number {
@@ -302,10 +340,20 @@ const VIS: Record<MemberDecl["access"], Visibility> = {
   "private protected": "-",
 };
 
-/** The Focus box of a type; `duplicates` are its bodies that are Duplicates, in source order. */
-function focusBox(t: OwnType, fileId: (f: string) => number, duplicates: { decl: MemberDecl; duplicate: FocusDuplicate }[]): FocusBox {
+/**
+ * The Focus box of a type; `duplicates` are its bodies that are Duplicates, in source order, and
+ * `bypassed` and `switches` its Bypassed interfaces and Type switches (ADR 0011).
+ */
+function focusBox(
+  t: OwnType,
+  fileId: (f: string) => number,
+  duplicates: { decl: MemberDecl; duplicate: FocusDuplicate }[],
+  bypassed: BypassedInterface[],
+  switches: TypeSwitch[],
+): FocusBox {
   const dupIndex = new Map<MemberDecl, number[]>();
   duplicates.forEach(({ decl }, i) => dupIndex.set(decl, [...(dupIndex.get(decl) ?? []), i]));
+  const indexes = <T>(list: T[], has: (x: T) => boolean) => list.flatMap((x, i) => (has(x) ? [i] : []));
   const attributes: FocusMember[] = [];
   const operations: FocusMember[] = [];
   let hidden = 0;
@@ -323,6 +371,12 @@ function focusBox(t: OwnType, fileId: (f: string) => number, duplicates: { decl:
       event: m.kind === "event",
       ...(dupIndex.has(m) ? { duplicates: dupIndex.get(m) } : {}),
     };
+    const isField = m.kind === "field" || m.kind === "property";
+    const bypassedBy = isField ? indexes(bypassed, (b) => b.fields.some((f) => f.member === m.name)) : [];
+    if (bypassedBy.length) fm.bypassed = bypassedBy;
+    const label = m.kind === "field" || m.kind === "const" ? m.name : memberLabel(m);
+    const switchesIn = indexes(switches, (s) => s.member === label);
+    if (switchesIn.length) fm.typeSwitches = switchesIn;
     if (m.kind === "method" || m.kind === "ctor" || m.kind === "dtor" || m.kind === "operator" || m.kind === "indexer") operations.push(fm);
     else attributes.push(fm);
   }
@@ -338,6 +392,8 @@ function focusBox(t: OwnType, fileId: (f: string) => number, duplicates: { decl:
     parts,
     assembly: t.assembly,
     ...(duplicates.length ? { duplicates: duplicates.map((d) => d.duplicate) } : {}),
+    ...(bypassed.length ? { bypassedInterfaces: bypassed } : {}),
+    ...(switches.length ? { typeSwitches: switches } : {}),
   };
 }
 

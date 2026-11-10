@@ -25,9 +25,13 @@ group of nodes that can each reach every other through Dependencies; a neighbour
 Cycle through the Focus, and the screen gives that Cycle hop by hop. A Duplicate is a member whose body has the
 same shape as another own member's (every name and literal ignored, 50 syntax nodes or more, generated files left
 out): the screen lists the Focus's Duplicates with the other members of the same shape and where they are, and marks
-a neighbour holding one.
-hints lists every node in a Tangle, biggest Tangle first, or with kind duplicate every group of Duplicates,
-biggest body first.`;
+a neighbour holding one. A Bypassed interface is a field or property keeping an own class although that class
+implements an own interface the holder doesn't (fields Unity serializes left out). A Type switch is a member that
+tests or casts (is, as, a cast, a pattern, a switch case) against two or more own subtypes of one own base. The
+screen lists the Focus's own of each and marks the edges they sit on, with the fields, interfaces, tests and base.
+hints lists every node in a Tangle, biggest Tangle first; with kind duplicate every group of Duplicates, biggest body
+first; with kind bypassed-interface every Bypassed interface, heaviest Weight first; with kind type-switch every Type
+switch, the most tested subtypes first.`;
 
 const TOOLS = [
   {
@@ -51,7 +55,7 @@ const TOOLS = [
     name: "screen",
     title: "Show a node's Screen",
     description:
-      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest; for a scene or prefab its component types, for a ScriptableObject asset its asset fields) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark (on a shortest Cycle through the Focus) with that Cycle hop by hop, namespace (or folder) distance and declaring file. The Focus says the size of its Tangle (0 for none) and lists its Duplicates: members whose bodies have the same shape as other own members', with those members' file:line. A neighbour holding a Duplicate of a Focus member has a duplicate hint naming both members. Rows are paged: each says how many it holds in total.",
+      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest; for a scene or prefab its component types, for a ScriptableObject asset its asset fields) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark (on a shortest Cycle through the Focus) with that Cycle hop by hop, namespace (or folder) distance and declaring file. The Focus says the size of its Tangle (0 for none) and lists its Duplicates: members whose bodies have the same shape as other own members', with those members' file:line. A neighbour holding a Duplicate of a Focus member has a duplicate hint naming both members. The Focus also lists its Bypassed interfaces (own classes it keeps in fields or properties although they implement an own interface, with the fields and interfaces) and its Type switches (members testing two or more own subtypes of one own base, with each test's file:line), and the neighbour on each such edge has a bypassed-interface or type-switch hint with the same evidence. Rows are paged: each says how many it holds in total.",
     inputSchema: {
       type: "object",
       properties: {
@@ -69,12 +73,12 @@ const TOOLS = [
     name: "hints",
     title: "List the nodes a Hint marks",
     description:
-      "Project-wide Hints: marks that point at code that may break a design principle, as evidence to judge. cycle lists every node in a Tangle (nodes that can each reach every other through Dependencies): biggest Tangle first, and within one the nodes with the most edges inside it first, each with its Tangle's number and size. Call screen on a node to see its shortest Cycles. duplicate lists every member in a group of Duplicates (bodies with the same shape once names and literals are ignored, 50 syntax nodes or more): the biggest body first, then the group with the most members, each member with its type, file:line and its group's number, size in syntax nodes and member count.",
+      "Project-wide Hints: marks that point at code that may break a design principle, as evidence to judge. cycle lists every node in a Tangle (nodes that can each reach every other through Dependencies): biggest Tangle first, and within one the nodes with the most edges inside it first, each with its Tangle's number and size. Call screen on a node to see its shortest Cycles. duplicate lists every member in a group of Duplicates (bodies with the same shape once names and literals are ignored, 50 syntax nodes or more): the biggest body first, then the group with the most members, each member with its type, file:line and its group's number, size in syntax nodes and member count. bypassed-interface lists every holder and the own class it keeps, heaviest Weight first, with the fields' file:line and the interfaces the class implements. type-switch lists every member testing two or more own subtypes of one own base, the most tested subtypes first, with the base and each test's file:line.",
     inputSchema: {
       type: "object",
       properties: {
         kind: { type: "string", enum: [...HINT_KINDS], description: "The kind of Hint (default cycle)." },
-        filter: { type: "string", description: "Keep only nodes whose name matches, as search matches; for duplicate, also members whose name contains it." },
+        filter: { type: "string", description: "Keep only nodes whose name matches, as search matches; for duplicate and type-switch, also members whose name contains it; for bypassed-interface, the holder or the held class, or a field whose name contains it." },
         limit: { type: "integer", minimum: 0, description: `Items to return (default ${HINTS_LIMIT}).` },
         offset: { type: "integer", minimum: 0, description: "Items to skip, for the next page." },
         assets: { type: "boolean", description: "false leaves Unity assets out." },

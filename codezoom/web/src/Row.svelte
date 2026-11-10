@@ -60,7 +60,14 @@
         {#each layout.boxes as b (b.n.id)}
           {@const lib = b.node.kind === "library"}
           {@const asset = isAssetKind(b.node.kind)}
-          {@const marks = [b.n.cycle && "⟲", b.n.hints?.some((h) => h.kind === "duplicate") && "≡"].filter(Boolean).join(" ")}
+          {@const marks = [
+            b.n.cycle && "⟲",
+            b.n.hints?.some((h) => h.kind === "duplicate") && "≡",
+            b.n.hints?.some((h) => h.kind === "bypassed-interface") && "△",
+            b.n.hints?.some((h) => h.kind === "type-switch") && "◇",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           <g
             class="box"
             class:hot={hoveredId === b.n.id}

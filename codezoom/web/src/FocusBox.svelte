@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { isAssetKind, type FocusBox, type FocusDuplicate, type FocusMember, type NodeInfo } from "../../src/shared/types";
+  import { isAssetKind, type FocusBox, type FocusMember, type NodeInfo } from "../../src/shared/types";
+  import type { FocusHints } from "./hints";
   import { FONT_CODE, FONT_UI, fitText, textWidth } from "./measure";
 
   interface Props {
@@ -9,10 +10,10 @@
     boxEl?: HTMLDivElement;
     /** Clicking the Focus shows its source. */
     onOpenSource?: () => void;
-    /** Hovering a ≡: the Duplicates to list beside it (ADR 0009), or null when the pointer leaves. */
-    onDuplicates?: (items: FocusDuplicate[] | null, anchor: DOMRect | null) => void;
+    /** Hovering a ≡, △ or ◇: the Hints to list beside it (ADR 0009, 0011), or null when the pointer leaves. */
+    onHints?: (hints: FocusHints | null, anchor: DOMRect | null) => void;
   }
-  let { node, box, files, boxEl = $bindable(), onOpenSource, onDuplicates }: Props = $props();
+  let { node, box, files, boxEl = $bindable(), onOpenSource, onHints }: Props = $props();
 
   const CODE = `12px ${FONT_CODE}`;
   /** An own component type or asset in an asset's box is drawn bold (.member.own). */
@@ -30,12 +31,28 @@
   const tangleHint = $derived(node.tangle ? `⟲ Tangle of ${node.tangle}` : "");
   /** Members that are Duplicates (ADR 0009), hidden ones too. */
   const duplicates = $derived(box.duplicates ?? []);
-  const dupHint = $derived(duplicates.length ? `≡ ${duplicates.length} ${duplicates.length === 1 ? "Duplicate" : "Duplicates"}` : "");
+  /** Classes it keeps despite their interface, and its members that are Type switches (ADR 0011). */
+  const bypassed = $derived(box.bypassedInterfaces ?? []);
+  const switches = $derived(box.typeSwitches ?? []);
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const SEP = " · ";
   const HINT_FONT = `11px ${FONT_UI}`;
-  const hint = $derived([tangleHint, dupHint].filter(Boolean).join(SEP));
+  /** The hint line's parts: the Tangle (a title only), then one hover target per kind of Hint the Focus has. */
+  const parts = $derived(
+    [
+      tangleHint && { text: tangleHint, hints: null, label: "" },
+      duplicates.length && { text: `≡ ${count(duplicates.length, "Duplicate", "Duplicates")}`, hints: { duplicates }, label: "members whose bodies have the same shape as another member's" },
+      bypassed.length && {
+        text: `△ ${count(bypassed.length, "Bypassed interface", "Bypassed interfaces")}`,
+        hints: { bypassed },
+        label: "own classes it keeps in fields or properties although they implement an own interface",
+      },
+      switches.length && { text: `◇ ${count(switches.length, "Type switch", "Type switches")}`, hints: { switches }, label: "members testing two or more subtypes of one own base" },
+    ].filter((p) => !!p) as { text: string; hints: FocusHints | null; label: string }[],
+  );
+  const hint = $derived(parts.map((p) => p.text).join(SEP));
   const HEADER = $derived(HEAD + (hint ? HINT_LINE : 0));
-  /** Room for a member's ≡ tag. */
+  /** Room for each of a member's ≡ △ ◇ tags. */
   const TAG = 16;
 
   const lineText = (m: FocusMember) => `${m.vis} ${m.event ? "«event» " : ""}${m.text}`;
@@ -44,7 +61,7 @@
       textWidth(node.name, `600 15px ${FONT_UI}`),
       textWidth(node.namespace, `11px ${FONT_UI}`),
       textWidth(hint, `11px ${FONT_UI}`),
-      ...[...box.attributes, ...box.operations].map((m) => textWidth(lineText(m), CODE) + (m.serialized ? 70 : 0) + (m.duplicates ? TAG : 0)),
+      ...[...box.attributes, ...box.operations].map((m) => textWidth(lineText(m), CODE) + (m.serialized ? 70 : 0) + tagsOf(m).length * TAG),
       ...items.map((i) => textWidth(i.text, i.own ? CODE_OWN : CODE)),
     );
     // round up: rounding down leaves the widest line a fraction of a pixel short, and fitText cuts it
@@ -58,39 +75,54 @@
   const height = $derived(lib ? HEADER + 34 : asset ? HEADER + 10 + Math.max(1, items.length) * LINE + 4 : footTop + (box.hidden ? 24 : 4));
   const where = $derived(box.file >= 0 ? `${files[box.file]}:${box.line}` : "");
 
-  // the hint line is centred as a whole; its Duplicates part is a hover target of its own
+  // the hint line is centred as a whole; each part after the Tangle is a hover target of its own
   const hintLeft = $derived((width - textWidth(hint, HINT_FONT)) / 2);
-  const dupLeft = $derived(hintLeft + (tangleHint ? textWidth(tangleHint + SEP, HINT_FONT) : 0));
+  const partLeft = (i: number) => hintLeft + (i ? textWidth(parts.slice(0, i).map((p) => p.text).join(SEP) + SEP, HINT_FONT) : 0);
 
-  function showDuplicates(e: Event, items: FocusDuplicate[]) {
-    onDuplicates?.(items, (e.currentTarget as Element).getBoundingClientRect());
+  function show(e: Event, hints: FocusHints) {
+    onHints?.(hints, (e.currentTarget as Element).getBoundingClientRect());
   }
-  const hideDuplicates = () => onDuplicates?.(null, null);
-  const itemsOf = (m: FocusMember) => (m.duplicates ?? []).map((i) => duplicates[i]);
-  const dupTitle = (m: FocusMember) =>
-    itemsOf(m)
-      .map((d) => `${d.member}: the same shape as ${d.duplicates.length === 1 ? "1 other member" : `${d.duplicates.length} other members`}`)
-      .join("\n");
+  const hide = () => onHints?.(null, null);
+  /** A member's tags, right to left: what its ≡, △ and ◇ each list. */
+  const tagsOf = (m: FocusMember): { glyph: string; hints: FocusHints; title: string }[] => {
+    const tags: { glyph: string; hints: FocusHints; title: string }[] = [];
+    if (m.duplicates) {
+      const items = m.duplicates.map((i) => duplicates[i]);
+      const title = items.map((d) => `${d.member}: the same shape as ${d.duplicates.length === 1 ? "1 other member" : `${d.duplicates.length} other members`}`).join("\n");
+      tags.push({ glyph: "≡", hints: { duplicates: items }, title });
+    }
+    if (m.bypassed) {
+      const items = m.bypassed.map((i) => bypassed[i]);
+      tags.push({ glyph: "△", hints: { bypassed: items }, title: "Keeps a class that implements an own interface" });
+    }
+    if (m.typeSwitches) {
+      const items = m.typeSwitches.map((i) => switches[i]);
+      tags.push({ glyph: "◇", hints: { switches: items }, title: "Tests two or more subtypes of one own base" });
+    }
+    return tags;
+  };
 </script>
 
-{#snippet dupTag(m: FocusMember, y: number)}
-  <text
-    class="dup"
-    x={width - PAD - (m.serialized ? 70 : 0)}
-    {y}
-    role="button"
-    tabindex="0"
-    aria-label="Duplicates of {m.text}"
-    onmouseenter={(e) => showDuplicates(e, itemsOf(m))}
-    onmouseleave={hideDuplicates}
-    onfocus={(e) => showDuplicates(e, itemsOf(m))}
-    onblur={hideDuplicates}
-    onclick={(e) => {
-      e.stopPropagation();
-      showDuplicates(e, itemsOf(m));
-    }}
-    onkeydown={(e) => e.key === "Enter" && (e.stopPropagation(), showDuplicates(e, itemsOf(m)))}><title>{dupTitle(m)}</title>≡</text
-  >
+{#snippet tags(m: FocusMember, y: number)}
+  {#each tagsOf(m) as tag, k (tag.glyph)}
+    <text
+      class="dup"
+      x={width - PAD - (m.serialized ? 70 : 0) - k * TAG}
+      {y}
+      role="button"
+      tabindex="0"
+      aria-label="{tag.title}: {m.text}"
+      onmouseenter={(e) => show(e, tag.hints)}
+      onmouseleave={hide}
+      onfocus={(e) => show(e, tag.hints)}
+      onblur={hide}
+      onclick={(e) => {
+        e.stopPropagation();
+        show(e, tag.hints);
+      }}
+      onkeydown={(e) => e.key === "Enter" && (e.stopPropagation(), show(e, tag.hints))}><title>{tag.title}</title>{tag.glyph}</text
+    >
+  {/each}
 {/snippet}
 
 <div
@@ -112,31 +144,35 @@
     <text class="label" x={width / 2} y="18">«{node.label}»</text>
     <text class="name" class:abstract={node.abstract} x={width / 2} y="38">{fitText(node.name, `600 15px ${FONT_UI}`, maxText)}</text>
     <text class="ns" x={width / 2} y="53">{fitText(lib ? "foreign library" : node.namespace || "(global namespace)", `11px ${FONT_UI}`, maxText)}</text>
-    {#if tangleHint}
-      <text class="hint" x={hintLeft} y={HEAD + 6}>
-        <title>In a Tangle of {node.tangle}: nodes that can each reach every other through their Dependencies. ⟲ marks the neighbours on the shortest Cycles through this Focus.</title>
-        {tangleHint}{dupHint ? SEP : ""}
-      </text>
-    {/if}
-    {#if dupHint}
-      <text
-        class="hint dups"
-        x={dupLeft}
-        y={HEAD + 6}
-        role="button"
-        tabindex="0"
-        aria-label="{dupHint}: members whose bodies have the same shape as another member's"
-        onmouseenter={(e) => showDuplicates(e, duplicates)}
-        onmouseleave={hideDuplicates}
-        onfocus={(e) => showDuplicates(e, duplicates)}
-        onblur={hideDuplicates}
-        onclick={(e) => {
-          e.stopPropagation();
-          showDuplicates(e, duplicates);
-        }}
-        onkeydown={(e) => e.key === "Enter" && (e.stopPropagation(), showDuplicates(e, duplicates))}>{dupHint}</text
-      >
-    {/if}
+    {#each parts as part, i (part.text)}
+      {@const sep = i < parts.length - 1 ? SEP : ""}
+      {#if part.hints}
+        {@const hints = part.hints}
+        <text
+          class="hint dups"
+          x={partLeft(i)}
+          y={HEAD + 6}
+          role="button"
+          tabindex="0"
+          aria-label="{part.text}: {part.label}"
+          onmouseenter={(e) => show(e, hints)}
+          onmouseleave={hide}
+          onfocus={(e) => show(e, hints)}
+          onblur={hide}
+          onclick={(e) => {
+            e.stopPropagation();
+            show(e, hints);
+          }}
+          onkeydown={(e) => e.key === "Enter" && (e.stopPropagation(), show(e, hints))}>{part.text}</text
+        >
+      {:else}
+        <text class="hint" x={partLeft(i)} y={HEAD + 6}>
+          <title>In a Tangle of {node.tangle}: nodes that can each reach every other through their Dependencies. ⟲ marks the neighbours on the shortest Cycles through this Focus.</title>
+          {part.text}
+        </text>
+      {/if}
+      {#if sep}<text class="hint" x={partLeft(i) + textWidth(part.text, HINT_FONT)} y={HEAD + 6} style="white-space: pre">{sep}</text>{/if}
+    {/each}
     {#if lib}
       <text class="note" x={width / 2} y={HEADER + 18}>Only its Dependents are shown</text>
     {:else if asset}
@@ -151,15 +187,15 @@
       <line x1="0" x2={width} y1={attrTop} y2={attrTop} />
       {#each box.attributes as m, i (i)}
         {@const y = attrTop + 5 + LINE * i + 13}
-        <text class="member" class:static={m.isStatic} class:abstract={m.isAbstract} x={PAD} {y}>{fitText(lineText(m), CODE, maxText - (m.serialized ? 70 : 0) - (m.duplicates ? TAG : 0))}</text>
+        <text class="member" class:static={m.isStatic} class:abstract={m.isAbstract} x={PAD} {y}>{fitText(lineText(m), CODE, maxText - (m.serialized ? 70 : 0) - tagsOf(m).length * TAG)}</text>
         {#if m.serialized}<text class="tag" x={width - PAD} {y}>serialized</text>{/if}
-        {#if m.duplicates}{@render dupTag(m, y)}{/if}
+        {@render tags(m, y)}
       {/each}
       <line x1="0" x2={width} y1={opTop} y2={opTop} />
       {#each box.operations as m, i (i)}
         {@const y = opTop + 5 + LINE * i + 13}
-        <text class="member" class:static={m.isStatic} class:abstract={m.isAbstract} x={PAD} {y}>{fitText(lineText(m), CODE, maxText - (m.duplicates ? TAG : 0))}</text>
-        {#if m.duplicates}{@render dupTag(m, y)}{/if}
+        <text class="member" class:static={m.isStatic} class:abstract={m.isAbstract} x={PAD} {y}>{fitText(lineText(m), CODE, maxText - tagsOf(m).length * TAG)}</text>
+        {@render tags(m, y)}
       {/each}
       {#if box.hidden}
         <text class="hidden" x={PAD} y={footTop + 16}>+{box.hidden} private</text>
