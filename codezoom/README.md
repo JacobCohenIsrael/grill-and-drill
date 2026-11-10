@@ -9,11 +9,13 @@ along your **Trail**, or **Jump** anywhere by name. In a Unity project the
 scenes, prefabs and ScriptableObject assets wired to your code are nodes
 too. Coding agents can ask the same questions through MCP.
 
-New in 1.4.0: [Duplicates](#duplicates), members whose bodies have the same
-shape as another member's. 1.4.1 reads a Unity project's scripts from its
-folders even when Unity's `.csproj` files are out of date, and stops the
-Focus box from cutting off the end of its widest line. 1.3.0 brought [Hints](#hints), starting with
-Tangles and the shortest Cycles through each Focus; 1.2.0
+New in 1.5.0: [Bypassed interfaces and Type switches](#bypassed-interfaces-and-type-switches),
+fields that keep a class instead of the interface it implements, and members
+that test a value against several subtypes. 1.4.1 reads a Unity project's
+scripts from its folders even when Unity's `.csproj` files are out of date;
+1.4.0 brought [Duplicates](#duplicates), members whose bodies have the same
+shape as another member's; 1.3.0 [Hints](#hints), starting with Tangles and
+the shortest Cycles through each Focus; 1.2.0
 [Unity assets as nodes](#unity-assets); and 1.1.0 agent access
 ([MCP and `--json`](#for-coding-agents)) and
 [plain .NET C# projects](#plain-net).
@@ -227,6 +229,39 @@ body first, then the group with the most members. The cache keeps each
 body's shape, so the first start after upgrading from 1.3.0 reads every
 file again, and later starts read none.
 
+### Bypassed interfaces and Type switches
+
+A **Bypassed interface** is a field or property that keeps an own class
+although that class implements an own interface the holder doesn't: the
+holder depends on the class where the interface would do. A **Type switch**
+is a member that tests or casts a value against two or more own subtypes of
+one own base, where a virtual member on the base might do.
+
+- A Bypassed interface counts fields and properties only, a generic
+  argument (`List<Enemy>`) and static fields included; a parameter, a local
+  or a `new` doesn't. Fields Unity serializes are left out: `[SerializeField]`,
+  `[SerializeReference]`, and public instance fields of a MonoBehaviour or
+  ScriptableObject that aren't readonly or `[NonSerialized]`. A property that
+  exposes such a field still counts.
+- A Type switch counts `is`, type patterns, `switch` type cases, `as` and
+  casts in one member (lambdas and local functions included), not `typeof`.
+  The tested types must share an own class or interface they all descend
+  from, at any depth; of two such bases, the more specific one is named.
+- The Focus box says "△ 1 Bypassed interface" and "◇ 1 Type switch" for its
+  own, a listed field or member carries △ or ◇, and hovering lists the
+  fields and interfaces, or each test with file:line and the base. Click one
+  to Jump to it.
+- **△** and **◇** on a neighbour's box mark the edge they sit on, at both
+  ends: the held class and its holder, the switching type and each subtype it
+  tests. The base gets no mark; the hover names it.
+- Generated files make neither. The start page lists both under the
+  Duplicates.
+
+`codezoom hints --kind bypassed-interface` lists every holder and the class
+it keeps, heaviest Weight first; `--kind type-switch` every Type switch, the
+most tested subtypes first. The first start after upgrading reads every file
+again, as the cache now keeps which References test a type.
+
 ## Golden walks
 
 A golden walk is a written-down sequence of moves through a project you
@@ -244,6 +279,8 @@ codezoom walk walks/*.walk.json
   "expect": {
     "tangle": 2,
     "duplicates": 0,
+    "bypassedInterfaces": 0,
+    "typeSwitches": 0,
     "dependents": ["BuildGrid", { "name": "TowerConfig", "cycle": true, "duplicate": false }],
     "dependencies": [
       { "name": "ITargetable", "edge": "has", "size": "large" },
@@ -266,9 +303,10 @@ codezoom walk walks/*.walk.json
 - Listed neighbours must be in that row; `absent` ones must not. Edge kind
   (`inherits`, `implements`, `has`, `uses`), `size` (`small`, `medium`,
   `large`), `cycle` (on a shortest Cycle through the Focus), `duplicate`
-  (holds a Duplicate of a Focus member), the Focus's `tangle` size (`0` for
-  none) and its number of `duplicates` (members that are Duplicates) are
-  checked only where given. Anything unlisted is allowed. Names match a
+  (holds a Duplicate of a Focus member), `bypassedInterface` and `typeSwitch`
+  (the edge with the Focus carries one, either way), the Focus's `tangle`
+  size (`0` for none) and its numbers of `duplicates`, `bypassedInterfaces`
+  and `typeSwitches` are checked only where given. Anything unlisted is allowed. Names match a
   node's full name, shown name or simple name.
 - It prints a line per screen with what differs, and exits 0 when every
   screen is as expected, 1 when one differs, 2 when a walk can't be read.
@@ -289,9 +327,9 @@ and talks over stdio.
 | Tool | Answers |
 |---|---|
 | `search(query, limit?, kind?, assets?)` | Nodes that match, as Jump matches them: name, full name, kind (a type's, `scene`, `prefab`, `asset` or `library`), label, and the Dependents and Dependencies counts. `kind` narrows the results (`type` means any of your types). |
-| `screen(focus, filter?, limit?, offset?, assets?)` | The Focus box (label, public and serialized members, how many private ones; an asset's components or asset fields) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark with that Cycle hop by hop, namespace (or folder) distance and declaring file, and a duplicate hint naming both members when it holds a Duplicate of a Focus member; the Focus gives its Tangle size and its Duplicates, each with the other members of its shape and their file:line. 25 per row by default; each row gives its total ("25 of 472"). |
+| `screen(focus, filter?, limit?, offset?, assets?)` | The Focus box (label, public and serialized members, how many private ones; an asset's components or asset fields) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark with that Cycle hop by hop, namespace (or folder) distance and declaring file, a duplicate hint naming both members when it holds a Duplicate of a Focus member, and a bypassed-interface or type-switch hint on the edge one sits on; the Focus gives its Tangle size, its Duplicates (each with the other members of its shape and their file:line), its Bypassed interfaces (fields and interfaces) and its Type switches (each test's file:line and the base). 25 per row by default; each row gives its total ("25 of 472"). |
 | `references(from, to, limit?, offset?)` | The References behind one edge: file:line and the member they sit in (for an asset, the GameObject path), 100 at a time. |
-| `hints(kind?, filter?, limit?, offset?, assets?)` | `cycle` (the default): every node in a Tangle, biggest Tangle first, each with its Tangle's number and size and its edges inside it. `duplicate`: every member in a group of Duplicates, the biggest body first, each with its type, file:line and its group's number, body size and member count. 50 at a time. |
+| `hints(kind?, filter?, limit?, offset?, assets?)` | `cycle` (the default): every node in a Tangle, biggest Tangle first, each with its Tangle's number and size and its edges inside it. `duplicate`: every member in a group of Duplicates, the biggest body first, each with its type, file:line and its group's number, body size and member count. `bypassed-interface`: every holder and the class it keeps, heaviest Weight first, with the fields' file:line and the interfaces. `type-switch`: every Type switch, the most tested subtypes first, with the base and each test's file:line. 50 at a time. |
 
 `assets: false` leaves scenes, prefabs and ScriptableObject assets out, as
 the page's Show assets toggle does. The tools keep no Trail: to Drill, call
@@ -310,6 +348,7 @@ codezoom screen Tower --limit 10 --json
 codezoom references Tower TowerConfig --json
 codezoom hints --json
 codezoom hints --kind duplicate --json
+codezoom hints --kind type-switch
 ```
 
 ## Commands and options
@@ -323,7 +362,7 @@ codezoom hints --kind duplicate --json
 | `codezoom search QUERY` | Nodes that match, best first. |
 | `codezoom screen NODE` | One Screen: the Focus box and both rows. |
 | `codezoom references FROM TO` | The References behind one edge. |
-| `codezoom hints` | Every node in a Tangle, biggest Tangle first; with `--kind duplicate`, every member in a group of Duplicates. |
+| `codezoom hints` | Every node in a Tangle, biggest Tangle first; with `--kind duplicate`, every member in a group of Duplicates; with `--kind bypassed-interface` or `type-switch`, every one of those. |
 | `--json` | Answer search, screen, references or hints as JSON. |
 | `--filter TEXT`, `--limit N`, `--offset N` | Filter and page the rows of a screen, or the hints list; search takes `--limit`, references `--limit` and `--offset`. |
 | `--kind KIND`, `--no-assets` | Narrow search or hints to one kind; leave assets out of search, screen and hints. |

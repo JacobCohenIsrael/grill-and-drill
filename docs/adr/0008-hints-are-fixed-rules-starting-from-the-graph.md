@@ -15,6 +15,10 @@ that need more from the reader, Bypassed interface and Type switch, wait until
 References can tell creating or testing a type apart from other Uses, a change
 designed once for both C# and TypeScript.
 
+Changed by ADR 0011: those two came to the C# reader first, in 1.5.0. Only
+a "tests" kind of Reference was needed, because a Bypassed interface counts
+fields and properties alone.
+
 ## Considered Options
 
 - **Mark every neighbour in the Focus's Tangle.** In a large production

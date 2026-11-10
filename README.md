@@ -6,8 +6,10 @@ draws a UML diagram of what it uses and what uses it. Click any neighbour to
 make it the centre, and step Back along your trail. In a Unity project the
 scenes, prefabs and ScriptableObject assets wired to your code are nodes too.
 Hints point at code that may break a design principle: Tangles, types that
-can each reach every other through their Dependencies, and Duplicates,
-members whose bodies have the same shape.
+can each reach every other through their Dependencies; Duplicates, members
+whose bodies have the same shape; Bypassed interfaces, fields that keep a
+class instead of the interface it implements; and Type switches, members
+that test a value against several subtypes.
 Coding agents can ask the same questions through MCP.
 
 **[Watch the 55-second demo and read the overview →](https://jacobcohenisrael.github.io/grill-and-drill/)**
@@ -57,19 +59,20 @@ from source.
 
 ## Status
 
-codezoom 1.4.1 is [on npm](https://www.npmjs.com/package/codezoom). It reads
-a Unity project's scripts from its folders even when Unity's `.csproj` files
-are out of date (ADR 0010), and fixes two small bugs. 1.4.0 added Duplicates: members whose bodies have the
-same shape as another member's once every name and literal is ignored, from
-50 syntax nodes, with generated files left out. Each Focus lists its
-Duplicates and where the others of each shape are, ≡ marks a neighbour
-holding one, and `codezoom hints --kind duplicate` lists every group, the
-biggest body first. 1.3.0 added Hints,
-starting with Tangles and the shortest Cycles through each Focus; 1.2.0
-Unity assets as nodes; and 1.1.0 agent access (an MCP server and `--json`
-output) and plain .NET C# projects. Next come hints that need more from the
-reader, Bypassed interface and Type switch. The last v1 step is still a
-sign-off by hand: golden walks through a large real project.
+codezoom 1.5.0 is [on npm](https://www.npmjs.com/package/codezoom). It adds
+the Hints that need more from the reader (ADR 0011): a Bypassed interface is
+a field or property keeping an own class although that class implements an
+own interface, with fields Unity serializes left out, and a Type switch is a
+member testing a value against two or more own subtypes of one own base. △
+and ◇ mark the edges they sit on, the Focus lists its own, and `codezoom
+hints` lists all of them. 1.4.1 reads a Unity project's scripts from its
+folders even when Unity's `.csproj` files are out of date (ADR 0010); 1.4.0
+added Duplicates, members whose bodies have the same shape once every name
+and literal is ignored; 1.3.0 Hints, starting with Tangles and the shortest
+Cycles through each Focus; 1.2.0 Unity assets as nodes; and 1.1.0 agent
+access (an MCP server and `--json` output) and plain .NET C# projects. The
+last v1 step is still a sign-off by hand: golden walks through a large real
+project.
 
 ## Credits
 
