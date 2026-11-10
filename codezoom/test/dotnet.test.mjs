@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { indexProject } from "../dist/server/indexer.js";
 import { fromForeignList } from "../dist/server/dotnet/foreignList.js";
@@ -77,6 +77,20 @@ test("TinyShop: SDK globs, <Compile Remove>, Directory.Build.props, top-level st
   assert.ok(edgesOf(exact, "Program").includes("TinyShop.Orders.OrderService uses"));
   assert.equal(exact.graph.types.has("TinyShop.Legacy.OldPricing"), false);
   assert.equal(exact.graph.types.has("TinyShop.Tests.PricingTests"), false);
+});
+
+test("TinyShop: a relative root indexes the same as an absolute one, <Compile Remove> included", () => {
+  const rel = relative(process.cwd(), shop);
+  assert.ok(!isAbsolute(rel));
+  const index = indexProject(rel, undefined, undefined, { foreignTypes });
+  const totals = (i) => {
+    const s = i.screens.meta.stats;
+    return [s.files, s.types, s.edges, s.references, s.libraries];
+  };
+  assert.deepEqual(totals(index), totals(exact));
+  assert.equal(index.projects.find((p) => p.assembly === "TinyShop.Core").compile.length, 16);
+  assert.equal(index.graph.types.has("TinyShop.Legacy.OldPricing"), false);
+  assert.equal(index.root, shop);
 });
 
 test("TinyShop: primary constructor parameters are Has; a package is one node", () => {

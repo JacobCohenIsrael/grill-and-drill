@@ -191,10 +191,13 @@ export interface ProjectSummary {
   standIn: string | null;
   unityInstalled: boolean;
   /**
-   * "csproj": Unity's .csproj files, exact. "asmdef": a fresh Unity clone, from .asmdef files and folder rules.
+   * Unity: files always come from .asmdef files and folder rules (ADR 0010). "csproj": Unity's .csproj
+   * files lend each assembly its defines and DLL references. "asmdef": none (a fresh clone).
    * "sln": a .NET solution's projects. "folder": every .NET project under the folder (no solution).
    */
   source: "csproj" | "asmdef" | "sln" | "folder";
+  /** Unity: source files in no .csproj, because Unity hasn't rewritten them since they were added. */
+  notInCsproj?: number;
   /** .NET: the solution files read. */
   solutions?: string[];
 }

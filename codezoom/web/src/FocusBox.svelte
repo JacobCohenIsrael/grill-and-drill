@@ -15,6 +15,8 @@
   let { node, box, files, boxEl = $bindable(), onOpenSource, onDuplicates }: Props = $props();
 
   const CODE = `12px ${FONT_CODE}`;
+  /** An own component type or asset in an asset's box is drawn bold (.member.own). */
+  const CODE_OWN = `600 ${CODE}`;
   const LINE = 18;
   const PAD = 12;
   /** Label, name and namespace; a hint line under them when there is one (ADR 0008). */
@@ -43,9 +45,10 @@
       textWidth(node.namespace, `11px ${FONT_UI}`),
       textWidth(hint, `11px ${FONT_UI}`),
       ...[...box.attributes, ...box.operations].map((m) => textWidth(lineText(m), CODE) + (m.serialized ? 70 : 0) + (m.duplicates ? TAG : 0)),
-      ...items.map((i) => textWidth(i.text, CODE)),
+      ...items.map((i) => textWidth(i.text, i.own ? CODE_OWN : CODE)),
     );
-    return Math.round(Math.min(Math.max(natural + PAD * 2, 260), 760));
+    // round up: rounding down leaves the widest line a fraction of a pixel short, and fitText cuts it
+    return Math.ceil(Math.min(Math.max(natural + PAD * 2, 260), 760));
   });
   const maxText = $derived(width - PAD * 2);
 
@@ -139,7 +142,7 @@
     {:else if asset}
       <line x1="0" x2={width} y1={HEADER} y2={HEADER} />
       {#each items as item, i (i)}
-        <text class="member" class:own={item.own} x={PAD} y={HEADER + 5 + LINE * i + 13}>{fitText(item.text, CODE, maxText)}</text>
+        <text class="member" class:own={item.own} x={PAD} y={HEADER + 5 + LINE * i + 13}>{fitText(item.text, item.own ? CODE_OWN : CODE, maxText)}</text>
       {/each}
       {#if !items.length}
         <text class="note" x={width / 2} y={HEADER + 22}>{node.kind === "asset" ? "No asset fields" : "No components"}</text>

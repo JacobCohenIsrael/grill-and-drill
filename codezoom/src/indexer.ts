@@ -3,7 +3,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { readFile } from "./csharp/reader.js";
 import type { FileFacts } from "./csharp/facts.js";
 import type { FallbackRoot, ForeignType } from "./csharp/resolver.js";
@@ -50,6 +50,8 @@ export interface IndexOptions {
 }
 
 export function indexProject(root: string, configFile?: string, cache: IndexCache = IndexCache.load(null), options: IndexOptions = {}): Index {
+  // absolute from here on: file paths are matched against absolute globs and hint paths
+  root = resolve(root);
   cache.begin();
   const timings: Record<string, number> = {};
   let mark = performance.now();

@@ -252,6 +252,13 @@
           in Unity or Rider for exact results.
         </p>
       {/if}
+      {#if data.project.notInCsproj}
+        <p class="warn">
+          {data.project.notInCsproj}
+          {data.project.notInCsproj === 1 ? "file isn't" : "files aren't"} in Unity's .csproj files yet; their assemblies come from the .asmdef
+          files. Open the project in Unity to refresh its defines.
+        </p>
+      {/if}
       {#if dotnet}
         <p class="help">
           Tick the projects that are your code. Pre-ticks follow the default rules: every project in the solution, without test

@@ -118,6 +118,10 @@ async function main() {
   if (index.project.source === "asmdef") {
     console.log("  no .csproj files: assemblies from .asmdef files and Unity folder rules; open the project once in Unity or Rider for exact results");
   }
+  if (index.project.notInCsproj) {
+    const n = index.project.notInCsproj;
+    console.log(`  ${n} ${n === 1 ? "file isn't" : "files aren't"} in Unity's .csproj files yet; their assemblies come from the .asmdef files. Open the project in Unity to refresh its defines.`);
+  }
   if (index.project.kind === "dotnet") {
     const from = index.project.solutions?.length ? index.project.solutions.join(", ") : "every .csproj under the folder (no .sln)";
     console.log(`  .NET: ${index.projects.length} projects from ${from}; base library from ${index.dotnet?.baseLibrary}`);

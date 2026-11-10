@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,6 +53,32 @@ test("TinyTowers has four Tangles: two of types, two of assets", () => {
   );
   const sizes = screens.meta.nodes.filter((n) => n.tangle).map((n) => n.tangle);
   assert.equal(sizes.length, 12);
+});
+
+test("stale .csproj files: the folders decide the files, the .csproj lends its defines (ADR 0010)", () => {
+  const copy = mkdtempSync(join(tmpdir(), "codezoom-stale-csproj-"));
+  cpSync(project, copy, { recursive: true, filter: (src) => !src.includes("/.codezoom") });
+  const gameplay = index.projects.find((p) => p.assembly === "TinyTowers.Gameplay").compile;
+  // what Unity wrote before WaveSpawner.cs and BakedPath.g.cs were added, and after Gone.cs was deleted
+  const listed = gameplay.filter((f) => !/\/(WaveSpawner|BakedPath\.g)\.cs$/.test(f));
+  const csproj = (name, files, defines) =>
+    `<Project><PropertyGroup><AssemblyName>${name}</AssemblyName><DefineConstants>${defines}</DefineConstants></PropertyGroup>` +
+    `<ItemGroup>${files.map((f) => `<Compile Include="${f.replace(/\//g, "\\")}" />`).join("")}</ItemGroup></Project>`;
+  writeFileSync(join(copy, "TinyTowers.Gameplay.csproj"), csproj("TinyTowers.Gameplay", [...listed, "Assets/TinyTowers/Gameplay/Gone.cs"], "UNITY_EDITOR;TINYTOWERS_STALE"));
+  // a registry package's source, which only a .csproj can point at
+  writeFileSync(join(copy, "Unity.Fake.csproj"), csproj("Unity.Fake", ["Library/PackageCache/com.unity.fake/Runtime/Fake.cs"], "UNITY_EDITOR"));
+
+  const stale = indexProject(copy, undefined, undefined, { foreignTypes });
+  assert.equal(stale.project.source, "csproj");
+  const all = index.projects.flatMap((p) => p.compile).filter((f) => f.endsWith(".cs")).length;
+  assert.equal(stale.project.notInCsproj, all - listed.length);
+  const s = stale.screens.meta.stats;
+  assert.deepEqual([s.types, s.edges, s.references], [48, 176, 335], "every file is read, Gone.cs is not missed");
+  const defines = (name) => stale.projects.find((p) => p.assembly === name).defines;
+  assert.ok(defines("TinyTowers.Gameplay").includes("TINYTOWERS_STALE"));
+  assert.deepEqual(defines("TinyTowers.Core"), defines("TinyTowers.Gameplay"), "an assembly with no .csproj borrows the largest one's defines");
+  assert.ok(stale.projects.some((p) => p.assembly === "Unity.Fake"));
+  assert.ok(!stale.projects.find((p) => p.assembly === "TinyTowers.Gameplay").compile.some((f) => f.endsWith("/Gone.cs")));
 });
 
 test("TinyTowers has three groups of Duplicates; the generated look-alike and the one under 50 nodes are in none", () => {

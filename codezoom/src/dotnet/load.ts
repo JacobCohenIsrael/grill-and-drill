@@ -49,6 +49,8 @@ export function isDotnetFolder(root: string): boolean {
 }
 
 export function loadDotnetProjects(root: string): { projects: DotnetProject[]; solutions: string[] } {
+  // <Compile Remove> specs resolve to absolute paths, so the files they test must be absolute too
+  root = resolve(root);
   const solutions = solutionFiles(root);
   const listed = solutions.length ? solutions.flatMap((s) => readSolution(root, s)) : findCsprojs(root);
   const queue = [...new Set(listed)].map((file) => ({ file, inSolution: true }));
