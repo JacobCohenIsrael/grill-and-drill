@@ -57,12 +57,14 @@ from source.
 
 ## Status
 
-codezoom 1.4.0 is [on npm](https://www.npmjs.com/package/codezoom). It adds
-Duplicates: members whose bodies have the same shape as another member's
-once every name and literal is ignored, from 50 syntax nodes, with generated
-files left out. Each Focus lists its Duplicates and where the others of each
-shape are, ≡ marks a neighbour holding one, and `codezoom hints --kind
-duplicate` lists every group, the biggest body first. 1.3.0 added Hints,
+codezoom 1.4.1 is [on npm](https://www.npmjs.com/package/codezoom). It reads
+a Unity project's scripts from its folders even when Unity's `.csproj` files
+are out of date (ADR 0010), and fixes two small bugs. 1.4.0 added Duplicates: members whose bodies have the
+same shape as another member's once every name and literal is ignored, from
+50 syntax nodes, with generated files left out. Each Focus lists its
+Duplicates and where the others of each shape are, ≡ marks a neighbour
+holding one, and `codezoom hints --kind duplicate` lists every group, the
+biggest body first. 1.3.0 added Hints,
 starting with Tangles and the shortest Cycles through each Focus; 1.2.0
 Unity assets as nodes; and 1.1.0 agent access (an MCP server and `--json`
 output) and plain .NET C# projects. Next come hints that need more from the

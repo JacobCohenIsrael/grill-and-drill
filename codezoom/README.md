@@ -10,7 +10,9 @@ scenes, prefabs and ScriptableObject assets wired to your code are nodes
 too. Coding agents can ask the same questions through MCP.
 
 New in 1.4.0: [Duplicates](#duplicates), members whose bodies have the same
-shape as another member's. 1.3.0 brought [Hints](#hints), starting with
+shape as another member's. 1.4.1 reads a Unity project's scripts from its
+folders even when Unity's `.csproj` files are out of date, and stops the
+Focus box from cutting off the end of its widest line. 1.3.0 brought [Hints](#hints), starting with
 Tangles and the shortest Cycles through each Focus; 1.2.0
 [Unity assets as nodes](#unity-assets); and 1.1.0 agent access
 ([MCP and `--json`](#for-coding-agents)) and
@@ -40,10 +42,12 @@ next free one) and opens your browser. Nothing leaves your machine.
 Requirements: Node.js 22.23 or newer (older versions crash inside
 tree-sitter's native binding). v1 is made for macOS ("Open in
 Rider" and the browser launch are macOS-first; elsewhere, open the printed
-address yourself). In a Unity project, exact results come from the
-`.csproj` files Unity writes when Rider or Visual Studio is its external
-editor; without them (a fresh clone) codezoom reads `.asmdef` files and
-Unity's folder rules instead. In a .NET solution, exact packages come from
+address yourself). In a Unity project, the files of each assembly come
+from its `.asmdef` files and Unity's folder rules, so new scripts count
+even before Unity runs again; the `.csproj` files Unity writes when Rider or
+Visual Studio is its external editor add each assembly's exact defines and
+DLL references (a fresh clone has none, and codezoom guesses them). In a
+.NET solution, exact packages come from
 `dotnet restore` (see [Plain .NET](#plain-net)); no .NET SDK is needed to run
 codezoom.
 

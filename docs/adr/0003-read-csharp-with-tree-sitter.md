@@ -14,6 +14,10 @@ files, which are gitignored. When we checked, the test project's Unity version
 was not installed. tree-sitter ships prebuilt for every platform and works on
 a fresh clone.
 
+Changed by ADR 0010: membership now always comes from the `.asmdef` files
+and folder rules, and the `.csproj` files only lend defines and DLL
+references, because they go stale while Unity is closed.
+
 ## Considered Options
 
 - **Roslyn helper run on the .NET SDK that Unity bundles.** Compiler-exact.
