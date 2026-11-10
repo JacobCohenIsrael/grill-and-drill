@@ -5,8 +5,9 @@ project or a .NET solution) one type at a time. Pick a type and codezoom
 draws a UML diagram of what it uses and what uses it. Click any neighbour to
 make it the centre, and step Back along your trail. In a Unity project the
 scenes, prefabs and ScriptableObject assets wired to your code are nodes too.
-Hints point at code that may break a design principle, starting with
-Tangles: types that can each reach every other through their Dependencies.
+Hints point at code that may break a design principle: Tangles, types that
+can each reach every other through their Dependencies, and Duplicates,
+members whose bodies have the same shape.
 Coding agents can ask the same questions through MCP.
 
 **[Watch the 55-second demo and read the overview →](https://jacobcohenisrael.github.io/grill-and-drill/)**
@@ -56,14 +57,17 @@ from source.
 
 ## Status
 
-codezoom 1.3.0 is [on npm](https://www.npmjs.com/package/codezoom). It adds
-Hints, evidence for the reader to judge rather than verdicts: each Focus says
-which Tangle it is in, ⟲ marks the neighbours on the shortest Cycles through
-it, and `codezoom hints` lists every Tangle, biggest first. 1.2.0 added Unity
-assets as nodes, and 1.1.0 agent access (an MCP server and `--json` output)
-and plain .NET C# projects. Next come Node/TypeScript projects (1.4.0), then
-hints that need more from the reader. The last v1 step is still a sign-off
-by hand: golden walks through a large real project.
+codezoom 1.4.0 is [on npm](https://www.npmjs.com/package/codezoom). It adds
+Duplicates: members whose bodies have the same shape as another member's
+once every name and literal is ignored, from 50 syntax nodes, with generated
+files left out. Each Focus lists its Duplicates and where the others of each
+shape are, ≡ marks a neighbour holding one, and `codezoom hints --kind
+duplicate` lists every group, the biggest body first. 1.3.0 added Hints,
+starting with Tangles and the shortest Cycles through each Focus; 1.2.0
+Unity assets as nodes; and 1.1.0 agent access (an MCP server and `--json`
+output) and plain .NET C# projects. Next come hints that need more from the
+reader, Bypassed interface and Type switch. The last v1 step is still a
+sign-off by hand: golden walks through a large real project.
 
 ## Credits
 

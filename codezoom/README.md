@@ -9,9 +9,11 @@ along your **Trail**, or **Jump** anywhere by name. In a Unity project the
 scenes, prefabs and ScriptableObject assets wired to your code are nodes
 too. Coding agents can ask the same questions through MCP.
 
-New in 1.3.0: [Hints](#hints), starting with Tangles and the shortest Cycles
-through each Focus. 1.2.0 brought [Unity assets as nodes](#unity-assets),
-and 1.1.0 agent access ([MCP and `--json`](#for-coding-agents)) and
+New in 1.4.0: [Duplicates](#duplicates), members whose bodies have the same
+shape as another member's. 1.3.0 brought [Hints](#hints), starting with
+Tangles and the shortest Cycles through each Focus; 1.2.0
+[Unity assets as nodes](#unity-assets); and 1.1.0 agent access
+([MCP and `--json`](#for-coding-agents)) and
 [plain .NET C# projects](#plain-net).
 
 Overview, demo and design notes: <https://jacobcohenisrael.github.io/grill-and-drill/>
@@ -191,6 +193,36 @@ project.
 `codezoom hints` lists every node in a Tangle, biggest Tangle first, and
 within one the nodes with the most edges inside it.
 
+### Duplicates
+
+A **Duplicate** is a member whose body has the same shape as another member
+of your code: the same syntax once every name (locals, parameters, fields,
+called methods, types) and every literal is ignored. Keywords, operators and
+structure must match, so two methods that do the same thing but call a
+different method are Duplicates too; you judge whether the likeness is on
+purpose.
+
+- A body counts from 50 syntax nodes, about six lines; there is no
+  similarity score. Methods, constructors, operators, `=>` bodies and each
+  property, indexer or event accessor are bodies; lambdas and local
+  functions are part of their member, and top-level statements are one body.
+- Files with an auto-generated header, or a type marked `[GeneratedCode]`,
+  are left out of Duplicates. They stay in the graph.
+- Duplicates show on the Focus first, because the other members of a shape
+  often share no Screen with it: the box says "≡ 2 Duplicates" (with a Tangle,
+  "⟲ Tangle of 4 · ≡ 2 Duplicates"), a listed member that is one carries
+  ≡, and hovering either lists each member's Duplicates with file:line.
+  Click one to Jump to its type.
+- **≡** on a neighbour's box marks a type that holds a Duplicate of a Focus
+  member; its hover names both members.
+- The start page lists every group of Duplicates under the Tangles, the
+  biggest body first.
+
+`codezoom hints --kind duplicate` lists every member in a group, the biggest
+body first, then the group with the most members. The cache keeps each
+body's shape, so the first start after upgrading from 1.3.0 reads every
+file again, and later starts read none.
+
 ## Golden walks
 
 A golden walk is a written-down sequence of moves through a project you
@@ -207,7 +239,8 @@ codezoom walk walks/*.walk.json
   "start": "TinyTowers.Towers.Tower",
   "expect": {
     "tangle": 2,
-    "dependents": ["BuildGrid", { "name": "TowerConfig", "cycle": true }],
+    "duplicates": 0,
+    "dependents": ["BuildGrid", { "name": "TowerConfig", "cycle": true, "duplicate": false }],
     "dependencies": [
       { "name": "ITargetable", "edge": "has", "size": "large" },
       { "name": "UnityEngine", "size": "small" }
@@ -228,10 +261,11 @@ codezoom walk walks/*.walk.json
   it lands on.
 - Listed neighbours must be in that row; `absent` ones must not. Edge kind
   (`inherits`, `implements`, `has`, `uses`), `size` (`small`, `medium`,
-  `large`), `cycle` (on a shortest Cycle through the Focus) and the Focus's
-  `tangle` size (`0` for none) are checked only where given. Anything
-  unlisted is allowed. Names match a node's full name, shown name or simple
-  name.
+  `large`), `cycle` (on a shortest Cycle through the Focus), `duplicate`
+  (holds a Duplicate of a Focus member), the Focus's `tangle` size (`0` for
+  none) and its number of `duplicates` (members that are Duplicates) are
+  checked only where given. Anything unlisted is allowed. Names match a
+  node's full name, shown name or simple name.
 - It prints a line per screen with what differs, and exits 0 when every
   screen is as expected, 1 when one differs, 2 when a walk can't be read.
 
@@ -251,9 +285,9 @@ and talks over stdio.
 | Tool | Answers |
 |---|---|
 | `search(query, limit?, kind?, assets?)` | Nodes that match, as Jump matches them: name, full name, kind (a type's, `scene`, `prefab`, `asset` or `library`), label, and the Dependents and Dependencies counts. `kind` narrows the results (`type` means any of your types). |
-| `screen(focus, filter?, limit?, offset?, assets?)` | The Focus box (label, public and serialized members, how many private ones; an asset's components or asset fields) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark with that Cycle hop by hop, namespace (or folder) distance and declaring file; the Focus gives its Tangle size. 25 per row by default; each row gives its total ("25 of 472"). |
+| `screen(focus, filter?, limit?, offset?, assets?)` | The Focus box (label, public and serialized members, how many private ones; an asset's components or asset fields) and both rows in the page's order. Each neighbour has its edge kind, Weight with R and M, size, cycle mark with that Cycle hop by hop, namespace (or folder) distance and declaring file, and a duplicate hint naming both members when it holds a Duplicate of a Focus member; the Focus gives its Tangle size and its Duplicates, each with the other members of its shape and their file:line. 25 per row by default; each row gives its total ("25 of 472"). |
 | `references(from, to, limit?, offset?)` | The References behind one edge: file:line and the member they sit in (for an asset, the GameObject path), 100 at a time. |
-| `hints(kind?, filter?, limit?, offset?, assets?)` | Every node in a Tangle, biggest Tangle first, each with its Tangle's number and size and its edges inside it; 50 at a time. `cycle` is the only kind so far. |
+| `hints(kind?, filter?, limit?, offset?, assets?)` | `cycle` (the default): every node in a Tangle, biggest Tangle first, each with its Tangle's number and size and its edges inside it. `duplicate`: every member in a group of Duplicates, the biggest body first, each with its type, file:line and its group's number, body size and member count. 50 at a time. |
 
 `assets: false` leaves scenes, prefabs and ScriptableObject assets out, as
 the page's Show assets toggle does. The tools keep no Trail: to Drill, call
@@ -271,6 +305,7 @@ codezoom search WSp --json
 codezoom screen Tower --limit 10 --json
 codezoom references Tower TowerConfig --json
 codezoom hints --json
+codezoom hints --kind duplicate --json
 ```
 
 ## Commands and options
@@ -284,7 +319,7 @@ codezoom hints --json
 | `codezoom search QUERY` | Nodes that match, best first. |
 | `codezoom screen NODE` | One Screen: the Focus box and both rows. |
 | `codezoom references FROM TO` | The References behind one edge. |
-| `codezoom hints` | Every node in a Tangle, biggest Tangle first. |
+| `codezoom hints` | Every node in a Tangle, biggest Tangle first; with `--kind duplicate`, every member in a group of Duplicates. |
 | `--json` | Answer search, screen, references or hints as JSON. |
 | `--filter TEXT`, `--limit N`, `--offset N` | Filter and page the rows of a screen, or the hints list; search takes `--limit`, references `--limit` and `--offset`. |
 | `--kind KIND`, `--no-assets` | Narrow search or hints to one kind; leave assets out of search, screen and hints. |
