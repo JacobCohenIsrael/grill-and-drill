@@ -157,3 +157,7 @@ _Avoid_: DIP violation, concrete dependency
 A member that tests or casts against two or more own subtypes of one own
 base type.
 _Avoid_: Instanceof chain, downcast, OCP violation
+
+**Duplicate**:
+A member whose body has the same shape as another own member's.
+_Avoid_: Clone, twin, copy, copy-paste, DRY violation
