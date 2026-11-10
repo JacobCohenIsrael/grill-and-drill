@@ -22,8 +22,12 @@ ranks it in its row. Find a node with search, read its Screen with screen, then 
 on; references gives the file:line evidence behind one edge. Read the files themselves for the source.
 Hints point at code that may break a design principle; they are evidence to judge, not verdicts. A Tangle is a
 group of nodes that can each reach every other through Dependencies; a neighbour marked cycle is on a shortest
-Cycle through the Focus, and the screen gives that Cycle hop by hop. hints lists every node in a Tangle,
-biggest Tangle first.`;
+Cycle through the Focus, and the screen gives that Cycle hop by hop. A Duplicate is a member whose body has the
+same shape as another own member's (every name and literal ignored, 50 syntax nodes or more, generated files left
+out): the screen lists the Focus's Duplicates with the other members of the same shape and where they are, and marks
+a neighbour holding one.
+hints lists every node in a Tangle, biggest Tangle first, or with kind duplicate every group of Duplicates,
+biggest body first.`;
 
 const TOOLS = [
   {
@@ -47,7 +51,7 @@ const TOOLS = [
     name: "screen",
     title: "Show a node's Screen",
     description:
-      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest; for a scene or prefab its component types, for a ScriptableObject asset its asset fields) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark (on a shortest Cycle through the Focus) with that Cycle hop by hop, namespace (or folder) distance and declaring file. The Focus says the size of its Tangle (0 for none). Rows are paged: each says how many it holds in total.",
+      "The Screen of one node, the Focus: its box (label, public and serialized members, a count of the rest; for a scene or prefab its component types, for a ScriptableObject asset its asset fields) and its two rows, Dependents and Dependencies, largest first. Each neighbour has its edge kind, Weight with R and M, size, cycle mark (on a shortest Cycle through the Focus) with that Cycle hop by hop, namespace (or folder) distance and declaring file. The Focus says the size of its Tangle (0 for none) and lists its Duplicates: members whose bodies have the same shape as other own members', with those members' file:line. A neighbour holding a Duplicate of a Focus member has a duplicate hint naming both members. Rows are paged: each says how many it holds in total.",
     inputSchema: {
       type: "object",
       properties: {
@@ -65,14 +69,14 @@ const TOOLS = [
     name: "hints",
     title: "List the nodes a Hint marks",
     description:
-      "Project-wide Hints: marks that point at code that may break a design principle, as evidence to judge. cycle lists every node in a Tangle (nodes that can each reach every other through Dependencies): biggest Tangle first, and within one the nodes with the most edges inside it first, each with its Tangle's number and size. Call screen on a node to see its shortest Cycles.",
+      "Project-wide Hints: marks that point at code that may break a design principle, as evidence to judge. cycle lists every node in a Tangle (nodes that can each reach every other through Dependencies): biggest Tangle first, and within one the nodes with the most edges inside it first, each with its Tangle's number and size. Call screen on a node to see its shortest Cycles. duplicate lists every member in a group of Duplicates (bodies with the same shape once names and literals are ignored, 50 syntax nodes or more): the biggest body first, then the group with the most members, each member with its type, file:line and its group's number, size in syntax nodes and member count.",
     inputSchema: {
       type: "object",
       properties: {
         kind: { type: "string", enum: [...HINT_KINDS], description: "The kind of Hint (default cycle)." },
-        filter: { type: "string", description: "Keep only nodes whose name matches, as search matches." },
-        limit: { type: "integer", minimum: 0, description: `Nodes to return (default ${HINTS_LIMIT}).` },
-        offset: { type: "integer", minimum: 0, description: "Nodes to skip, for the next page." },
+        filter: { type: "string", description: "Keep only nodes whose name matches, as search matches; for duplicate, also members whose name contains it." },
+        limit: { type: "integer", minimum: 0, description: `Items to return (default ${HINTS_LIMIT}).` },
+        offset: { type: "integer", minimum: 0, description: "Items to skip, for the next page." },
         assets: { type: "boolean", description: "false leaves Unity assets out." },
       },
     },

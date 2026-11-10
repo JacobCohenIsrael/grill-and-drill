@@ -11,7 +11,7 @@ import type { ForeignTypeDef } from "./dotnet/metadata.js";
 import type { AssetFacts } from "./unity/assetFacts.js";
 
 /** Bump when the reader or the facts change shape: old caches are then ignored. */
-const SCHEMA = 3; // 2: top-level statements, primary constructors as Has; 3: Unity assets and .meta GUIDs
+const SCHEMA = 4; // 2: top-level statements, primary constructors as Has; 3: Unity assets and .meta GUIDs; 4: member shapes for Duplicates
 const FILE = "index-cache.bin";
 
 interface Stamp {

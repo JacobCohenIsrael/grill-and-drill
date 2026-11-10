@@ -63,12 +63,12 @@ test("assets: the five edge kinds, and only ever from an asset", () => {
   // the start button's UnityEvent runs WaveSpawner.Begin inside the nested Waves prefab
   assert.equal(edge(id("Scenes/Level1.unity"), "TinyTowers.Waves.WaveSpawner").kind, "calls");
 
-  // code edges are what they were before assets: 136 edges, 272 References
+  // code edges are what they would be without assets: 137 edges, 295 References
   const fromTypes = [...graph.out].filter(([from]) => !from.startsWith("asset:")).flatMap(([, m]) => [...m.values()]);
-  assert.equal(fromTypes.length, 136);
-  assert.equal(fromTypes.reduce((n, e) => n + e.refs.length, 0), 272);
+  assert.equal(fromTypes.length, 137);
+  assert.equal(fromTypes.reduce((n, e) => n + e.refs.length, 0), 295);
   assert.ok(fromTypes.every((e) => !e.to.startsWith("asset:")), "no edge from a type to an asset");
-  assert.deepEqual([index.screens.meta.stats.types, index.screens.meta.stats.edges, index.screens.meta.stats.references], [47, 175, 312]);
+  assert.deepEqual([index.screens.meta.stats.types, index.screens.meta.stats.edges, index.screens.meta.stats.references], [48, 176, 335]);
 });
 
 test("assets: Weight counts occurrences (R) and GameObjects (M); an SO asset is one", () => {
@@ -165,7 +165,7 @@ test("assets: cached per file; a warm run reads none of them", async () => {
   const second = IndexCache.load(dir);
   const again = indexProject(project, undefined, second, { foreignTypes });
   assert.deepEqual(second.changed, []);
-  assert.equal(again.screens.meta.stats.edges, 175);
+  assert.equal(again.screens.meta.stats.edges, 176);
 });
 
 test("assets: a changed prefab is read again; an override to a new config shows up", () => {

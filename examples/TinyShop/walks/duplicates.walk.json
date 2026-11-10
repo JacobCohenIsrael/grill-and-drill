@@ -1,0 +1,31 @@
+{
+  "name": "Duplicates: the order the sample placed by hand, before OrderService existed",
+  "start": "TinyShop.Orders.OrderService",
+  "expect": {
+    "focus": "OrderService",
+    "duplicates": 1,
+    "dependents": [{ "name": "Program", "duplicate": false }],
+    "dependencies": [{ "name": "Order", "duplicate": false }, { "name": "IProductCatalog", "duplicate": false }],
+    "absent": { "dependents": ["SampleData", "OldCheckout"], "dependencies": ["SampleData", "OldCheckout"] }
+  },
+  "steps": [
+    {
+      "drill": "Program",
+      "expect": {
+        "focus": "Program",
+        "duplicates": 0,
+        "dependencies": [{ "name": "OrderService", "duplicate": false }, { "name": "SampleData", "duplicate": false }]
+      }
+    },
+    {
+      "drill": "SampleData",
+      "expect": {
+        "focus": "SampleData",
+        "duplicates": 1,
+        "dependents": [{ "name": "Program", "duplicate": false }],
+        "dependencies": [{ "name": "Order", "edge": "uses", "duplicate": false }],
+        "absent": { "dependencies": ["OrderService"] }
+      }
+    }
+  ]
+}

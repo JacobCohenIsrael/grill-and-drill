@@ -18,9 +18,16 @@ namespace TinyTowers.UI
             var list = document.rootVisualElement.Q<VisualElement>("shop");
             foreach (TowerConfig tower in shop.Catalog)
             {
-                var button = new Button(() => selected = tower) { text = $"{tower.displayName} ({tower.cost})" };
+                var button = new Button(() => selected = tower) { text = LabelFor(tower) };
                 list.Add(button);
             }
+        }
+
+        private string LabelFor(TowerConfig tower)
+        {
+            var missing = tower.cost - shop.Gold;
+            if (missing <= 0) return $"{tower.displayName} ({tower.cost})";
+            return $"{tower.displayName} ({tower.cost}, {missing} short)";
         }
 
         public void PlaceSelected(Vector3 at)

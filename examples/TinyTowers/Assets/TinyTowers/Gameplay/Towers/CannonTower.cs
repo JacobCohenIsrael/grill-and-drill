@@ -13,6 +13,21 @@ namespace TinyTowers.Towers
         protected override void OnImpact(Vector3 point)
         {
             EnemyRegistry.ForEachWithin(point, splashRadius, e => e.Damageable.TakeDamage(config.damage / 2));
+            StaggerNear(point);
+        }
+
+        /// From level 2 on, everything near the impact staggers as well.
+        private int StaggerNear(Vector3 point)
+        {
+            if (Level < 2) return 0;
+            var hits = 0;
+            foreach (var hit in Physics.OverlapSphere(point, config.range / 4f))
+            {
+                if (!hit.CompareTag("Enemy") || hit.transform == transform) continue;
+                hit.SendMessage("Stagger", splashRadius / 2f, SendMessageOptions.DontRequireReceiver);
+                hits++;
+            }
+            return hits;
         }
     }
 }

@@ -61,11 +61,42 @@ export interface CycleHop {
   ref: RefWire;
 }
 
-/** A Hint on a neighbour (ADR 0008). A Cycle: one shortest Cycle through the Focus and this neighbour, Focus first and last. */
-export type NeighbourHint = { kind: "cycle"; hops: CycleHop[] };
+/**
+ * A Hint on a neighbour. A Cycle (ADR 0008): one shortest Cycle through the Focus and this neighbour, Focus first
+ * and last. A Duplicate (ADR 0009): one of this neighbour's members has the same shape as a Focus member, `of`.
+ */
+export type NeighbourHint = { kind: "cycle"; hops: CycleHop[] } | ({ kind: "duplicate"; of: string; nodes: number } & Omit<DuplicateMember, "id">);
 
 /** A Tangle (ADR 0008): its nodes, the ones with the most edges inside it first, each with that edge count. */
 export type Tangle = { id: string; inside: number }[];
+
+/** One member body in a Duplicate group (ADR 0009). */
+export interface DuplicateMember {
+  /** Its type's node. */
+  id: string;
+  /** As References name members: `Place()`, `Total`, `Total.get` for one accessor, `Main()` for top-level statements. */
+  member: string;
+  /** Index into Meta.files. */
+  file: number;
+  line: number;
+}
+
+/** Own members whose bodies have the same shape (ADR 0009), each body `nodes` syntax nodes. */
+export interface DuplicateGroup {
+  nodes: number;
+  members: DuplicateMember[];
+}
+
+/** A member of the Focus that is a Duplicate, and the other members in its group. */
+export interface FocusDuplicate {
+  member: string;
+  file: number;
+  line: number;
+  /** Its group's number in Meta.duplicates, counting from 1. */
+  group: number;
+  nodes: number;
+  duplicates: DuplicateMember[];
+}
 
 export type Visibility = "+" | "-" | "#" | "~";
 
@@ -76,6 +107,8 @@ export interface FocusMember {
   isAbstract: boolean;
   serialized: boolean;
   event: boolean;
+  /** Its bodies that are Duplicates: indexes into FocusBox.duplicates. */
+  duplicates?: number[];
 }
 
 export interface FocusBox {
@@ -91,6 +124,8 @@ export interface FocusBox {
   assembly: string;
   /** An asset's box: component types with counts (scene, prefab) or its asset-assigning fields (ScriptableObject). */
   asset?: { items: { text: string; own: boolean }[] };
+  /** Its members that are Duplicates (ADR 0009), hidden ones too; absent when it has none. */
+  duplicates?: FocusDuplicate[];
 }
 
 export interface Screen {
@@ -118,6 +153,8 @@ export interface Meta {
   stats: IndexStats;
   /** Every Tangle, biggest first. */
   tangles: Tangle[];
+  /** Every group of Duplicates (ADR 0009): the biggest body first, then the most members. */
+  duplicates: DuplicateGroup[];
   /** The editor "Open in …" launches, when one was found. */
   editor?: string | null;
   /** Goes up each time the index is rebuilt while the server runs. */

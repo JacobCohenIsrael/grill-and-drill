@@ -60,6 +60,7 @@
         {#each layout.boxes as b (b.n.id)}
           {@const lib = b.node.kind === "library"}
           {@const asset = isAssetKind(b.node.kind)}
+          {@const marks = [b.n.cycle && "⟲", b.n.hints?.some((h) => h.kind === "duplicate") && "≡"].filter(Boolean).join(" ")}
           <g
             class="box"
             class:hot={hoveredId === b.n.id}
@@ -85,7 +86,7 @@
             <text class="label" x={b.innerW / 2} y={16}>{b.label}</text>
             <text class="name" class:abstract={b.node.abstract} x={b.innerW / 2} y={33}>{b.name}</text>
             {#if b.previous}<text class="mark back" x={lib ? 14 : 5} y={12}>↩</text>{/if}
-            {#if b.n.cycle}<text class="mark cycle" x={b.innerW - (lib ? 14 : asset ? FOLD + 3 : 5)} y={12} text-anchor="end">⟲</text>{/if}
+            {#if marks}<text class="mark hint" x={b.innerW - (lib ? 14 : asset ? FOLD + 3 : 5)} y={12} text-anchor="end">{marks}</text>{/if}
           </g>
         {/each}
       </svg>
@@ -206,7 +207,7 @@
   .mark.back {
     fill: var(--back);
   }
-  .mark.cycle {
+  .mark.hint {
     fill: var(--cycle);
     text-anchor: end;
   }

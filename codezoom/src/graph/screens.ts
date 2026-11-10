@@ -3,8 +3,24 @@
 
 import type { MemberDecl } from "../csharp/facts.js";
 import type { OwnType } from "../csharp/resolver.js";
-import { isAssetKind, type CycleHop, type FocusBox, type FocusMember, type Meta, type Neighbour, type NodeInfo, type Screen, type Tangle, type Visibility } from "../shared/types.js";
+import {
+  isAssetKind,
+  type CycleHop,
+  type DuplicateGroup,
+  type DuplicateMember,
+  type FocusBox,
+  type FocusDuplicate,
+  type FocusMember,
+  type Meta,
+  type Neighbour,
+  type NeighbourHint,
+  type NodeInfo,
+  type Screen,
+  type Tangle,
+  type Visibility,
+} from "../shared/types.js";
 import type { Edge, Graph } from "./build.js";
+import { findDuplicates, type Body } from "./duplicates.js";
 import { findTangles, shortestCycles } from "./hints.js";
 
 /** Distance given to foreign libraries so they sort after every own type and asset. */
@@ -111,12 +127,38 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
       return { from: path[i], to, edge: e.kind, ref: [r.member, fileId(r.file), r.line] };
     });
 
+  // Duplicates (ADR 0009): the biggest body first, then the most members, then by name
+  const nameOf = (b: Body) => `${info.get(b.type)!.name}.${b.member}`;
+  const groups = findDuplicates(graph.types.values())
+    .map((g) => g.sort((a, b) => compareNames(nameOf(a), nameOf(b)) || a.file.localeCompare(b.file) || a.line - b.line))
+    .sort((a, b) => b[0].nodes - a[0].nodes || b.length - a.length || compareNames(nameOf(a[0]), nameOf(b[0])));
+  const wire = (b: Body): DuplicateMember => ({ id: b.type, member: b.member, file: fileId(b.file), line: b.line });
+  const duplicates: DuplicateGroup[] = groups.map((g) => ({ nodes: g[0].nodes, members: g.map(wire) }));
+  /** Each type's bodies that are Duplicates, in source order, with their group's index. */
+  const bodiesOf = new Map<string, { body: Body; group: number }[]>();
+  groups.forEach((g, group) => {
+    for (const body of g) {
+      const list = bodiesOf.get(body.type);
+      if (list) list.push({ body, group });
+      else bodiesOf.set(body.type, [{ body, group }]);
+    }
+  });
+  for (const list of bodiesOf.values()) list.sort((a, b) => a.body.file.localeCompare(b.body.file) || a.body.line - b.body.line);
+
   const json = new Map<string, string>();
   for (const n of nodes) {
     const outgoing = [...(graph.out.get(n.id)?.values() ?? [])];
     const incoming = [...(graph.in.get(n.id)?.values() ?? [])];
     const tangle = tangleOf.get(n.id);
     const cycles = tangle ? shortestCycles(n.id, tangle, out, inn) : null;
+    const mine = bodiesOf.get(n.id) ?? [];
+    /** A neighbour's members with the shape of a Focus member. */
+    const duplicateHints = (id: string): NeighbourHint[] =>
+      mine.flatMap(({ body, group }) =>
+        groups[group]
+          .filter((o) => o.type === id)
+          .map((o) => ({ kind: "duplicate" as const, of: body.member, nodes: body.nodes, member: o.member, file: fileId(o.file), line: o.line })),
+      );
     const row = (edges: Edge[], other: (e: Edge) => string, onCycle: Map<string, string[]> | undefined): Neighbour[] =>
       edges
         .map((e) => {
@@ -124,6 +166,7 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
           const o = info.get(id)!;
           const members = new Set(e.refs.map((r) => (r.typeLevel ? "\u0000declaration" : r.member))).size;
           const cycle = onCycle?.get(id);
+          const hints: NeighbourHint[] = [...(cycle ? [{ kind: "cycle" as const, hops: hops(cycle) }] : []), ...duplicateHints(id)];
           return {
             id,
             edge: e.kind,
@@ -133,7 +176,7 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
             distance: distance(n, o),
             cycle: cycle !== undefined,
             refs: e.refs.map((r) => [r.member, fileId(r.file), r.line] as [string, number, number]),
-            ...(cycle ? { hints: [{ kind: "cycle" as const, hops: hops(cycle) }] } : {}),
+            ...(hints.length ? { hints } : {}),
           };
         })
         // the page groups by size first (shared/weight.ts); this order holds within a size
@@ -145,7 +188,14 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
     const asset = graph.assets.get(n.id);
     const screen: Screen = {
       focus: t
-        ? focusBox(t, fileId)
+        ? focusBox(
+            t,
+            fileId,
+            mine.map(({ body, group }) => ({
+              decl: body.decl,
+              duplicate: { member: body.member, file: fileId(body.file), line: body.line, group: group + 1, nodes: body.nodes, duplicates: groups[group].filter((o) => o !== body).map(wire) },
+            })),
+          )
         : asset
           ? { id: n.id, attributes: [], operations: [], hidden: 0, file: fileId(asset.path), line: 1, parts: [], assembly: "", asset: { items: asset.box } }
           : { id: n.id, attributes: [], operations: [], hidden: 0, file: -1, line: 0, parts: [], assembly: "" },
@@ -154,7 +204,7 @@ export function buildScreens(graph: Graph, project: string, stats: Meta["stats"]
     };
     json.set(n.id, JSON.stringify(screen));
   }
-  return { meta: { project, nodes, files, stats, tangles }, json };
+  return { meta: { project, nodes, files, stats, tangles, duplicates }, json };
 }
 
 export function namespaceDistance(a: string, b: string): number {
@@ -252,7 +302,10 @@ const VIS: Record<MemberDecl["access"], Visibility> = {
   "private protected": "-",
 };
 
-function focusBox(t: OwnType, fileId: (f: string) => number): FocusBox {
+/** The Focus box of a type; `duplicates` are its bodies that are Duplicates, in source order. */
+function focusBox(t: OwnType, fileId: (f: string) => number, duplicates: { decl: MemberDecl; duplicate: FocusDuplicate }[]): FocusBox {
+  const dupIndex = new Map<MemberDecl, number[]>();
+  duplicates.forEach(({ decl }, i) => dupIndex.set(decl, [...(dupIndex.get(decl) ?? []), i]));
   const attributes: FocusMember[] = [];
   const operations: FocusMember[] = [];
   let hidden = 0;
@@ -268,13 +321,24 @@ function focusBox(t: OwnType, fileId: (f: string) => number): FocusBox {
       isAbstract: m.isAbstract,
       serialized: m.serialized,
       event: m.kind === "event",
+      ...(dupIndex.has(m) ? { duplicates: dupIndex.get(m) } : {}),
     };
     if (m.kind === "method" || m.kind === "ctor" || m.kind === "dtor" || m.kind === "operator" || m.kind === "indexer") operations.push(fm);
     else attributes.push(fm);
   }
   const first = t.parts[0];
   const parts = t.parts.map((p) => ({ file: fileId(p.file), line: p.line }));
-  return { id: t.key, attributes, operations, hidden, file: fileId(first.file), line: first.line, parts, assembly: t.assembly };
+  return {
+    id: t.key,
+    attributes,
+    operations,
+    hidden,
+    file: fileId(first.file),
+    line: first.line,
+    parts,
+    assembly: t.assembly,
+    ...(duplicates.length ? { duplicates: duplicates.map((d) => d.duplicate) } : {}),
+  };
 }
 
 function memberText(m: MemberDecl): string {

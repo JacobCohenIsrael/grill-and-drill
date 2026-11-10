@@ -1,9 +1,11 @@
 // Reads one C# file with tree-sitter into declarations and unresolved
-// References. Both sides of every #if are read (ADR 0003).
+// References. Both sides of every #if are read (ADR 0003). Member bodies
+// also get their shapes, for Duplicates (ADR 0009).
 
 import Parser from "tree-sitter";
 import { conditionSymbols, configure, hasIf } from "./branches.js";
 import { LiteNode, liteTree } from "./lite.js";
+import { hasGeneratedHeader, isGeneratedCodeAttribute, shapeOf, topLevelShape } from "./shape.js";
 // deep import: the package's extensionless "main" warns under ESM
 import CSharp from "tree-sitter-c-sharp/bindings/node/index.js";
 import type {
@@ -16,6 +18,7 @@ import type {
   RawRef,
   RefRole,
   Scope,
+  Shape,
   TypeDecl,
   TypeKind,
 } from "./facts.js";
@@ -134,6 +137,12 @@ const SKIP_NODES = new Set([
 
 const NOT_TYPE_NAMES = new Set(["var", "nameof", "value", "dynamic", "_", "global"]);
 
+const ACCESSORS = new Set(["get", "set", "init", "add", "remove"]);
+
+function pushShape(shapes: Shape[], shape: Shape | null) {
+  if (shape) shapes.push(shape);
+}
+
 /**
  * Reads both sides of every #if. When that does not parse (an #if splits a
  * declaration), reads the file in two consistent configurations instead: the
@@ -170,7 +179,12 @@ function mergeSides(a: FileFacts, b: FileFacts): FileFacts {
     const seen = new Set(same.members.map((m) => `${m.kind}\u0000${m.name}\u0000${m.line}`));
     for (const m of t.members) if (!seen.has(`${m.kind}\u0000${m.name}\u0000${m.line}`)) same.members.push(m);
   }
-  return { ...a, types, refs: [...a.refs, ...b.refs], globalUsings: [...new Set([...a.globalUsings, ...b.globalUsings])] };
+  const merged: FileFacts = { ...a, types, refs: [...a.refs, ...b.refs], globalUsings: [...new Set([...a.globalUsings, ...b.globalUsings])] };
+  if (a.generated || b.generated) {
+    merged.generated = true;
+    dropShapes(merged);
+  }
+  return merged;
 }
 
 function readText(path: string, assembly: string, text: string): FileFacts {
@@ -187,11 +201,23 @@ function readText(path: string, assembly: string, text: string): FileFacts {
   const reader = new Reader(facts);
   const scope: Scope = { ns: "", parent: null, usings: [], aliases: new Map(), staticUsings: [] };
   reader.container(root, { scope, type: null, member: "", methodTypeParams: null, locals: null });
+  reader.finishTopLevel();
+  if (reader.generatedCode || hasGeneratedHeader(text)) {
+    facts.generated = true;
+    dropShapes(facts);
+  }
   return facts;
+}
+
+/** A generated file stays in the graph, without shapes: its members are never Duplicates (ADR 0009). */
+function dropShapes(facts: FileFacts) {
+  for (const t of facts.types) for (const m of t.members) delete m.shapes;
 }
 
 class Reader {
   facts: FileFacts;
+  /** A type in the file has [GeneratedCode]. */
+  generatedCode = false;
 
   constructor(facts: FileFacts) {
     this.facts = facts;
@@ -238,6 +264,7 @@ class Reader {
 
   private program: TypeDecl | null = null;
   private programLocals = new Set<string>();
+  private topLevel: Node[] = [];
 
   /** Top-level statements: the compiler wraps them in a Program class's Main, so their References are Program's. */
   topLevelStatement(node: Node, ctx: Ctx) {
@@ -259,7 +286,16 @@ class Reader {
       };
       this.facts.types.push(this.program);
     }
+    this.topLevel.push(node);
     for (const c of node.namedChildren) this.expr(c, { scope: ctx.scope, type: this.program, member: "Main()", methodTypeParams: null, locals: this.programLocals });
+  }
+
+  /** The top-level statements are one body: Main's. */
+  finishTopLevel() {
+    if (!this.program) return;
+    const main = this.program.members[0];
+    const shape = topLevelShape(this.topLevel, main.line);
+    if (shape) main.shapes = [shape];
   }
 
   namespaceScope(node: Node, parent: Scope): Scope {
@@ -337,6 +373,7 @@ class Reader {
       switch (c.type) {
         case "attribute_list":
           this.attributes(c, typeCtx, true);
+          if (c.namedChildren.some((a) => a.type === "attribute" && isGeneratedCodeAttribute(nameText(a.childForFieldName("name") ?? a)))) this.generatedCode = true;
           break;
         case "base_list":
           if (kind !== "enum") this.baseList(c, typeCtx);
@@ -482,7 +519,17 @@ class Reader {
           }
         });
         const kind: MemberKind = t === "indexer_declaration" ? "indexer" : t === "event_declaration" ? "event" : "property";
-        decl.members.push(member(kind, name, typeNode ? compact(typeNode.text) : null, params, access, mods, serialized, node));
+        const m = member(kind, name, typeNode ? compact(typeNode.text) : null, params, access, mods, serialized, node);
+        const shapes: Shape[] = [];
+        const value = node.childForFieldName("value");
+        if (value?.type === "arrow_expression_clause") pushShape(shapes, shapeOf(value, m.line));
+        for (const acc of node.childForFieldName("accessors")?.namedChildren ?? []) {
+          const body = acc.type === "accessor_declaration" ? acc.childForFieldName("body") : null;
+          const keyword = acc.children.find((c) => !c.isNamed && ACCESSORS.has(c.type))?.type;
+          if (body) pushShape(shapes, shapeOf(body, acc.startPosition.row + 1, keyword ?? "accessor"));
+        }
+        if (shapes.length) m.shapes = shapes;
+        decl.members.push(m);
         return;
       }
       case "method_declaration":
@@ -537,7 +584,11 @@ class Reader {
             }
           }
         });
-        decl.members.push(member(kind, name, returns ? compact(returns.text) : null, params, access, mods, serialized, node));
+        const m = member(kind, name, returns ? compact(returns.text) : null, params, access, mods, serialized, node);
+        const body = node.childForFieldName("body");
+        const shape = body ? shapeOf(body, m.line) : null;
+        if (shape) m.shapes = [shape];
+        decl.members.push(m);
         return;
       }
       case "delegate_declaration":

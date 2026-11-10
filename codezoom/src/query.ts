@@ -14,8 +14,8 @@ export const SEARCH_LIMIT = 20;
 export const REFERENCE_LIMIT = 100;
 export const HINTS_LIMIT = 50;
 
-/** The kinds of Hint `hints` lists (ADR 0008). */
-export const HINT_KINDS = ["cycle"] as const;
+/** The kinds of Hint `hints` lists: Tangles and Cycles (ADR 0008), Duplicates (ADR 0009). */
+export const HINT_KINDS = ["cycle", "duplicate"] as const;
 export type HintKind = (typeof HINT_KINDS)[number];
 
 /** A question that has no answer as asked: no such node, two candidates, no such edge. */
@@ -57,10 +57,20 @@ export interface RowItem extends NodeSummary {
 /** One step of a Cycle, with its first Reference: from a type the member it sits in, from an asset the GameObject. */
 export type CycleStep = { from: string; edge: EdgeKind; to: string; at: string } & ({ member: string } | { gameObject: string | null });
 
-/** A Cycle Hint: one shortest Cycle through the Focus and this neighbour, Focus first and last. */
-export interface HintEvidence {
-  hint: "cycle";
-  cycle: CycleStep[];
+/**
+ * The evidence behind a Hint on a neighbour. A Cycle: one shortest Cycle through the Focus and this neighbour,
+ * Focus first and last. A Duplicate: this neighbour's `member`, declared `at`, has the same shape as the Focus's `of`.
+ */
+export type HintEvidence = { hint: "cycle"; cycle: CycleStep[] } | { hint: "duplicate"; of: string; member: string; at: string; nodes: number };
+
+/** A member of the Focus that is a Duplicate (ADR 0009): its body's size, its group, and the other members in that group. */
+export interface FocusDuplicateAnswer {
+  member: string;
+  at: string;
+  nodes: number;
+  /** Its group's number in `hints` kind duplicate, counting from 1. */
+  group: number;
+  duplicates: { name: string; full: string; member: string; at: string }[];
 }
 
 export interface RowAnswer {
@@ -91,6 +101,8 @@ export interface ScreenAnswer {
     fields?: string[];
     /** The size of its Tangle: nodes that can each reach every other through Dependencies. 0 when it is in none. */
     tangle: number;
+    /** Its members whose bodies have the same shape as another own member's, hidden ones too; empty when none. */
+    duplicates: FocusDuplicateAnswer[];
   };
   dependents: RowAnswer;
   dependencies: RowAnswer;
@@ -111,8 +123,10 @@ export interface ReferencesAnswer {
   notes: string[];
 }
 
-export interface HintsAnswer {
-  hint: HintKind;
+export type HintsAnswer = CycleHintsAnswer | DuplicateHintsAnswer;
+
+export interface CycleHintsAnswer {
+  hint: "cycle";
   /** Every Tangle's size, biggest first; a node's `tangle.number` counts from 1 in this list. */
   tangles: number[];
   /** Nodes with this Hint. */
@@ -123,6 +137,21 @@ export interface HintsAnswer {
   shown: number;
   /** Biggest Tangle first; within one, the nodes with the most edges inside it first. */
   items: (NodeSummary & { tangle: { number: number; size: number }; edgesInside: number; file: string | null })[];
+  notes: string[];
+}
+
+export interface DuplicateHintsAnswer {
+  hint: "duplicate";
+  /** Every group of Duplicates: its body's size in syntax nodes and its members; a member's `group.number` counts from 1 in this list. */
+  groups: { nodes: number; members: number }[];
+  /** Members in a group. */
+  total: number;
+  /** Members the filter keeps. */
+  matching: number;
+  offset: number;
+  shown: number;
+  /** The biggest body's group first, then the group with the most members; each member with its type. */
+  items: (NodeSummary & { member: string; at: string; group: { number: number; nodes: number; size: number } })[];
   notes: string[];
 }
 
@@ -198,6 +227,16 @@ export class Query {
         private: box.hidden,
         ...(asset ? (node.kind === "asset" ? { fields: contents } : { components: contents }) : {}),
         tangle: node.tangle ?? 0,
+        duplicates: (box.duplicates ?? []).map((d) => ({
+          member: d.member,
+          at: this.at(d.file, d.line),
+          nodes: d.nodes,
+          group: d.group,
+          duplicates: d.duplicates.map((m) => {
+            const t = this.nodes.get(m.id)!;
+            return { name: t.name, full: t.full, member: m.member, at: this.at(m.file, m.line) };
+          }),
+        })),
       },
       dependents: this.row(screen, "dependents", page),
       dependencies: this.row(screen, "dependencies", page),
@@ -234,11 +273,13 @@ export class Query {
   }
 
   /**
-   * The nodes a kind of Hint marks, project-wide (ADR 0008). Cycle: every node
-   * in a Tangle, biggest Tangle first.
+   * What a kind of Hint marks, project-wide. Cycle (ADR 0008): every node in a
+   * Tangle, biggest Tangle first. Duplicate (ADR 0009): every member in a group
+   * of Duplicates, the biggest body first.
    */
   hints(kind: string = "cycle", page: Page = {}): HintsAnswer {
     if (!(HINT_KINDS as readonly string[]).includes(kind)) throw new QueryError(`kind must be one of ${HINT_KINDS.join(", ")}`);
+    if (kind === "duplicate") return this.duplicateHints(page);
     // edges from a type never reach an asset, so a Tangle is all types or all assets
     const tangles = this.screens.meta.tangles.filter((t) => page.assets !== false || !isAssetKind(this.nodes.get(t[0].id)!.kind));
     const all = tangles.flatMap((t, i) => t.map(({ id, inside }) => ({ node: this.nodes.get(id)!, number: i + 1, size: t.length, inside })));
@@ -258,6 +299,25 @@ export class Query {
         edgesInside: inside,
         file: node.file === undefined ? null : this.at(node.file, node.line ?? 0),
       })),
+      notes: this.notes,
+    };
+  }
+
+  private duplicateHints(page: Page): DuplicateHintsAnswer {
+    const groups = this.screens.meta.duplicates ?? [];
+    const all = groups.flatMap((g, i) => g.members.map((m) => ({ m, node: this.nodes.get(m.id)!, number: i + 1, nodes: g.nodes, size: g.members.length })));
+    const q = page.filter?.trim().toLowerCase();
+    const kept = q ? all.filter(({ m, node }) => matchesName(node, page.filter!) || m.member.toLowerCase().includes(q)) : all;
+    const offset = Math.max(0, Math.floor(page.offset ?? 0));
+    const shown = kept.slice(offset, offset + clamp(page.limit, HINTS_LIMIT));
+    return {
+      hint: "duplicate",
+      groups: groups.map((g) => ({ nodes: g.nodes, members: g.members.length })),
+      total: all.length,
+      matching: kept.length,
+      offset,
+      shown: shown.length,
+      items: shown.map(({ m, node, number, nodes, size }) => ({ ...summary(node), member: m.member, at: this.at(m.file, m.line), group: { number, nodes, size } })),
       notes: this.notes,
     };
   }
@@ -315,7 +375,12 @@ export class Query {
           referenceCount: n.count,
           memberCount: n.members,
           cycle: n.cycle,
-          hints: (n.hints ?? []).map((h) => ({ hint: h.kind, cycle: h.hops.map((step) => this.step(step)) })),
+          hints: (n.hints ?? []).map(
+            (h): HintEvidence =>
+              h.kind === "cycle"
+                ? { hint: "cycle", cycle: h.hops.map((step) => this.step(step)) }
+                : { hint: "duplicate", of: h.of, member: h.member, at: this.at(h.file, h.line), nodes: h.nodes },
+          ),
           namespaceDistance: lib ? null : n.distance,
           file: lib || node.file === undefined ? null : this.at(node.file, node.line ?? 0),
         };
@@ -354,7 +419,9 @@ export function screenText(a: ScreenAnswer): string {
   if (f.file) lines.push(`  ${f.file}${f.parts.length ? ` (+${f.parts.length - 1} more parts)` : ""}`);
   for (const m of [...f.attributes, ...f.operations, ...(f.components ?? []), ...(f.fields ?? [])]) lines.push(`  ${m}`);
   if (f.private) lines.push(`  +${f.private} private`);
-  if (f.tangle) lines.push(`  ⟲ in a Tangle of ${f.tangle}`);
+  const marks = [f.tangle && `⟲ in a Tangle of ${f.tangle}`, f.duplicates.length && `≡ ${f.duplicates.length} ${f.duplicates.length === 1 ? "Duplicate" : "Duplicates"}`].filter(Boolean);
+  if (marks.length) lines.push(`  ${marks.join("  ")}`);
+  for (const d of f.duplicates) lines.push(`  ≡ ${d.member} (${d.nodes} nodes): ${d.duplicates.map((o) => `${o.name}.${o.member} ${o.at}`).join(", ")}`);
   for (const [title, row] of [["Dependents", a.dependents], ["Dependencies", a.dependencies]] as const) {
     const range = row.shown ? `${row.offset + 1}-${row.offset + row.shown} of ${row.matching}` : row.matching ? `none of ${row.matching}` : "none";
     lines.push(`${title}: ${range}${row.matching !== row.total ? ` matching (${row.total} in all)` : ""}`);
@@ -362,13 +429,20 @@ export function screenText(a: ScreenAnswer): string {
     for (const n of row.items) {
       const weight = `W ${n.weight} (R ${n.referenceCount}, M ${n.memberCount})`;
       lines.push(`  ${n.size.padEnd(6)}  ${n.name.padEnd(w)}  ${n.edge.padEnd(11)}  ${weight.padEnd(20)}${n.cycle ? "  cycle" : ""}${n.file ? `  ${n.file}` : ""}`);
-      for (const h of n.hints) lines.push(`          ⟲ ${[h.cycle[0].from, ...h.cycle.map((s) => s.to)].join(" → ")}`);
+      for (const h of n.hints) {
+        if (h.hint === "cycle") lines.push(`          ⟲ ${[h.cycle[0].from, ...h.cycle.map((s) => s.to)].join(" → ")}`);
+        else lines.push(`          ≡ ${h.member} has the shape of ${h.of} (${h.nodes} nodes)  ${h.at}`);
+      }
     }
   }
   return withNotes(lines, a.notes);
 }
 
 export function hintsText(a: HintsAnswer): string {
+  return a.hint === "duplicate" ? duplicatesText(a) : tanglesText(a);
+}
+
+function tanglesText(a: CycleHintsAnswer): string {
   const nodes = a.tangles.reduce((sum, size) => sum + size, 0);
   const lines = [
     a.tangles.length
@@ -383,6 +457,24 @@ export function hintsText(a: HintsAnswer): string {
   for (const n of a.items) {
     if (n.tangle.number !== last) lines.push(`Tangle ${(last = n.tangle.number)} (${n.tangle.size} nodes)`);
     lines.push(`  ${n.name.padEnd(w)}  ${`«${n.label}»`.padEnd(lw)}  ${String(n.edgesInside).padStart(ew)} edges inside${n.file ? `  ${n.file}` : ""}`);
+  }
+  return withNotes(lines, a.notes);
+}
+
+function duplicatesText(a: DuplicateHintsAnswer): string {
+  const n = a.groups.length;
+  const lines = [
+    n
+      ? `${n} ${n === 1 ? "group of Duplicates holds" : "groups of Duplicates hold"} ${a.total} members (bodies of ${a.groups.map((g) => g.nodes).join(", ")} syntax nodes)`
+      : "No Duplicates: no two own members of 50 syntax nodes or more have the same shape",
+  ];
+  if (a.total) lines.push(`Showing ${a.shown ? `${a.offset + 1}-${a.offset + a.shown}` : "none"} of ${a.matching}${a.matching !== a.total ? ` matching (${a.total} in all)` : ""}`);
+  const label = (i: DuplicateHintsAnswer["items"][number]) => `${i.name}.${i.member}`;
+  const w = Math.max(0, ...a.items.map((i) => label(i).length));
+  let last = 0;
+  for (const i of a.items) {
+    if (i.group.number !== last) lines.push(`Group ${(last = i.group.number)} (${i.group.nodes} nodes, ${i.group.size} members)`);
+    lines.push(`  ${label(i).padEnd(w)}  ${i.at}`);
   }
   return withNotes(lines, a.notes);
 }

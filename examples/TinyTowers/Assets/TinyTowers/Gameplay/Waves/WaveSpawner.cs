@@ -18,6 +18,30 @@ namespace TinyTowers.Waves
 
         public void Begin() => StartCoroutine(RunAll());
 
+        /// Enemies still to come, from wave `from` (counting from 1) to the last.
+        public int EnemiesFrom(int from)
+        {
+            var total = 0;
+            for (var w = Mathf.Max(from, 1); w <= waves.Length; w++)
+            {
+                if (waves[w - 1] == null) continue;
+                foreach (var group in waves[w - 1].groups) total += group.count;
+            }
+            return total;
+        }
+
+        /// Seconds of pauses before groups still to come, from wave `from` to the last.
+        public float DelayFrom(int from)
+        {
+            var total = 0f;
+            for (var w = Mathf.Max(from, 1); w <= waves.Length; w++)
+            {
+                if (waves[w - 1] == null) continue;
+                foreach (var group in waves[w - 1].groups) total += group.delayBefore;
+            }
+            return total;
+        }
+
         private IEnumerator RunAll()
         {
             Running = true;

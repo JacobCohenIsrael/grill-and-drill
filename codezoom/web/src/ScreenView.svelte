@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { isAssetKind, type EdgeKind, type Neighbour, type NodeInfo, type RefWire, type Screen } from "../../src/shared/types";
+  import { isAssetKind, type EdgeKind, type FocusDuplicate, type Neighbour, type NodeInfo, type RefWire, type Screen } from "../../src/shared/types";
+  import DuplicatesPopover from "./DuplicatesPopover.svelte";
   import FocusBox from "./FocusBox.svelte";
   import Row from "./Row.svelte";
   import RefsPopover from "./RefsPopover.svelte";
@@ -15,13 +16,15 @@
     previousId: string | null;
     onDrill: (id: string, box?: Element) => void;
     onBack: () => void;
+    /** A Duplicate in the hover list was clicked: its type becomes the Focus. */
+    onJump?: (id: string) => void;
     onOpenSource?: () => void;
     /** The References behind the hovered neighbour's edge, or null. */
     onHoverRefs?: (refs: RefWire[] | null) => void;
     /** False leaves Unity assets out of both rows ("Show assets"). */
     showAssets?: boolean;
   }
-  let { screen, focus, nodes, files, previousId, onDrill, onBack, onOpenSource, onHoverRefs, showAssets = true }: Props = $props();
+  let { screen, focus, nodes, files, previousId, onDrill, onBack, onJump, onOpenSource, onHoverRefs, showAssets = true }: Props = $props();
 
   // hidden assets leave the rows before they are sized, so the code boxes keep their own scale
   const visible = (row: Neighbour[]) => (showAssets ? row : row.filter((n) => !isAssetKind(nodes.get(n.id)?.kind ?? "class")));
@@ -52,6 +55,15 @@
         hovered = null;
         onHoverRefs?.(null);
       }, 140);
+  }
+
+  // ---- hover: the Focus's Duplicates (ADR 0009) ----
+  let dupHover = $state.raw<{ items: FocusDuplicate[]; anchor: DOMRect } | null>(null);
+  let dupTimer: ReturnType<typeof setTimeout> | undefined;
+  function hoverDuplicates(items: FocusDuplicate[] | null, anchor: DOMRect | null) {
+    clearTimeout(dupTimer);
+    if (items?.length && anchor) dupHover = { items, anchor };
+    else dupTimer = setTimeout(() => (dupHover = null), 160);
   }
 
   function pick(box: Box, el: Element) {
@@ -229,7 +241,7 @@
   />
 
   <div class="middle">
-    <FocusBox node={focus} box={screen.focus} {files} bind:boxEl={focusEl} {onOpenSource} />
+    <FocusBox node={focus} box={screen.focus} {files} bind:boxEl={focusEl} {onOpenSource} onDuplicates={hoverDuplicates} />
     <div class="legend" aria-label="Edge kinds">
       <svg width="250" height={legend.length * 15 + 4}>
         {#each legend as [kind, label], i (kind)}
@@ -272,6 +284,22 @@
     {files}
     onEnter={() => clearTimeout(hideTimer)}
     onLeave={() => hover(hovered!.position, null, null)}
+  />
+{/if}
+
+{#if dupHover}
+  <DuplicatesPopover
+    items={dupHover.items}
+    {focus}
+    {nodes}
+    anchor={dupHover.anchor}
+    {files}
+    onJump={(id) => {
+      dupHover = null;
+      onJump?.(id);
+    }}
+    onEnter={() => clearTimeout(dupTimer)}
+    onLeave={() => hoverDuplicates(null, null)}
   />
 {/if}
 

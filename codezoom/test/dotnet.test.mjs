@@ -45,13 +45,23 @@ test("TinyShop: a .NET solution; own code is every project but the tests", () =>
   assert.deepEqual(exact.projects.map((p) => p.assembly), ["TinyShop.App", "TinyShop.Core", "TinyShop.Storage", "TinyShop.Tests"]);
   assert.deepEqual(exact.own.assemblies.map((p) => p.assembly), ["TinyShop.App", "TinyShop.Core", "TinyShop.Storage"]);
   const s = exact.screens.meta.stats;
-  assert.deepEqual([s.types, s.edges, s.references, s.libraries], [22, 71, 125, 3]);
+  assert.deepEqual([s.types, s.edges, s.references, s.libraries], [22, 78, 134, 3]);
   assert.deepEqual(exact.notes, [], "the committed list is exact: no restore note");
 
   // without the config, the default rules come to the same choice
   const defaults = indexProject(shop, join(tmpdir(), "codezoom-no-such-config.json"), undefined, { foreignTypes });
   assert.deepEqual(defaults.own.assemblies.map((p) => p.assembly), ["TinyShop.App", "TinyShop.Core", "TinyShop.Storage"]);
   assert.deepEqual(defaults.own.skipped, [{ assembly: "TinyShop.Tests", reason: "test project" }]);
+});
+
+test("TinyShop: one group of Duplicates; the same body in Legacy/ is not compiled, so not counted", () => {
+  const name = new Map(exact.screens.meta.nodes.map((n) => [n.id, n.name]));
+  assert.deepEqual(
+    exact.screens.meta.duplicates.map((g) => [g.nodes, ...g.members.map((m) => `${name.get(m.id)}.${m.member} ${exact.screens.meta.files[m.file]}:${m.line}`)]),
+    [[89, "OrderService.Place() src/TinyShop.Core/Orders/OrderService.cs:11", "SampleData.PlaceByHand() src/TinyShop.App/SampleData.cs:21"]],
+  );
+  // the top-level statements are one body, Program.Main's, in no group
+  assert.ok(exact.graph.types.get("Program").members.find((m) => m.name === "Main").shapes[0].nodes >= 50);
 });
 
 test("TinyShop: SDK globs, <Compile Remove>, Directory.Build.props, top-level statements", () => {
@@ -98,12 +108,15 @@ test("TinyShop unrestored: packages by root namespace, and every answer says so"
   const q = new Query(unrestored.screens, indexNotes(unrestored));
   for (const a of [q.search("Order"), q.screen("OrderService"), q.references("OrderJsonConverter", "Newtonsoft.Json")]) assert.deepEqual(a.notes, unrestored.notes);
 
-  // the same graph as restored, but for what only a restore can know: ServiceCollection lives in a transitive package
+  // the same graph as restored, but for what only a restore can know: ServiceCollection and ILogger live in transitive packages
   const edges = (index) => [...index.graph.out].flatMap(([from, m]) => [...m.values()].map((e) => `${from} -> ${e.to} ${e.kind} ${e.refs.length}`)).sort();
   const restoredOnly = edges(exact).filter((e) => !edges(unrestored).includes(e));
   const fallbackOnly = edges(unrestored).filter((e) => !edges(exact).includes(e));
-  assert.deepEqual(restoredOnly, ["Program -> lib:Microsoft.Extensions.DependencyInjection.Abstractions uses 1"]);
-  assert.deepEqual(fallbackOnly, ["Program -> lib:Microsoft.Extensions.DependencyInjection uses 1"]);
+  assert.deepEqual(restoredOnly, [
+    "Program -> lib:Microsoft.Extensions.DependencyInjection.Abstractions uses 1",
+    "TinyShop.App.SampleData -> lib:Microsoft.Extensions.Logging.Abstractions uses 1",
+  ]);
+  assert.deepEqual(fallbackOnly, ["Program -> lib:Microsoft.Extensions.DependencyInjection uses 1", "TinyShop.App.SampleData -> lib:Microsoft.Extensions.Logging uses 1"]);
   // Core sees only its own package: the Abstractions package, under the namespace it extends
   assert.ok(edgesOf(unrestored, "TinyShop.Orders.OrderService").includes("lib:Microsoft.Extensions.Logging.Abstractions has"));
 });

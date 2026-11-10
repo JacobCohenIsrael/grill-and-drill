@@ -36,6 +36,20 @@ export type MemberKind =
   | "operator"
   | "indexer";
 
+/**
+ * One member body's shape (ADR 0009): its syntax tree with every name and
+ * literal left out, hashed, and how many syntax nodes it has. Kept only for
+ * bodies of MIN_SHAPE_NODES or more.
+ */
+export interface Shape {
+  hash: string;
+  nodes: number;
+  /** Where the body's member (or accessor) is declared. */
+  line: number;
+  /** A property's, indexer's or event's accessor: get, set, init, add, remove. */
+  accessor?: string;
+}
+
 export interface MemberDecl {
   kind: MemberKind;
   name: string;
@@ -48,6 +62,11 @@ export interface MemberDecl {
   isAbstract: boolean;
   serialized: boolean;
   line: number;
+  /**
+   * Its bodies of MIN_SHAPE_NODES syntax nodes or more: one for a method, or
+   * one per accessor. Absent when there are none, and in a generated file.
+   */
+  shapes?: Shape[];
 }
 
 /** One declaration of a type. A partial type has several. */
@@ -98,4 +117,6 @@ export interface FileFacts {
   refs: RawRef[];
   globalUsings: string[];
   parseErrors: boolean;
+  /** An auto-generated header or [GeneratedCode]: in the graph, but left out of Duplicates (ADR 0009). */
+  generated?: boolean;
 }

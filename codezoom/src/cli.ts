@@ -31,7 +31,7 @@ const USAGE = `Usage: codezoom [TypeName] [--port N] [--config FILE] [--cache-di
        codezoom search QUERY [--kind KIND] [--limit N] [--no-assets] [--json]
        codezoom screen NODE [--filter TEXT] [--limit N] [--offset N] [--no-assets] [--json]
        codezoom references FROM TO [--limit N] [--offset N] [--json]
-       codezoom hints [--kind cycle] [--filter TEXT] [--limit N] [--offset N] [--no-assets] [--json]
+       codezoom hints [--kind cycle|duplicate] [--filter TEXT] [--limit N] [--offset N] [--no-assets] [--json]
 
 --foreign-types FILE reads foreign type names from a list (made by
 scripts/extract-foreign-types.mjs) instead of Unity's DLLs or a .NET
@@ -58,7 +58,9 @@ exits non-zero when a screen differs. See the README for the format.
 over MCP's stdio transport; "codezoom search|screen|references|hints" answer
 the same questions once, as text or, with --json, as the tools' JSON.
 "codezoom hints" lists every node in a Tangle (nodes that can each reach
-every other through Dependencies), biggest Tangle first.`;
+every other through Dependencies), biggest Tangle first; with --kind
+duplicate, every member whose body has the same shape as another own
+member's (50 syntax nodes or more), the biggest body first.`;
 
 async function main() {
   const args = process.argv.slice(2);

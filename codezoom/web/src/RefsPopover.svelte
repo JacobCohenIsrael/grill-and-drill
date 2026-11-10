@@ -52,17 +52,29 @@
   </div>
   <div class="sub">{node.full}</div>
   {#each item.hints ?? [] as h, i (i)}
-    <div class="hint">
-      <div class="hint-head">⟲ On a shortest Cycle through {focus.name}</div>
-      <ol>
-        {#each h.hops as hop, j (j)}
-          <li title="{files[hop.ref[1]]}:{hop.ref[2]}">
-            <span class="hop">{nameOf(hop.from)} <span class="kind {hop.edge}">{KIND[hop.edge]}</span> {nameOf(hop.to)}</span>
-            <span class="where">{sitsIn(hop)} · {baseName(files[hop.ref[1]])}:{hop.ref[2]}</span>
+    {#if h.kind === "cycle"}
+      <div class="hint">
+        <div class="hint-head">⟲ On a shortest Cycle through {focus.name}</div>
+        <ol>
+          {#each h.hops as hop, j (j)}
+            <li title="{files[hop.ref[1]]}:{hop.ref[2]}">
+              <span class="hop">{nameOf(hop.from)} <span class="kind {hop.edge}">{KIND[hop.edge]}</span> {nameOf(hop.to)}</span>
+              <span class="where">{sitsIn(hop)} · {baseName(files[hop.ref[1]])}:{hop.ref[2]}</span>
+            </li>
+          {/each}
+        </ol>
+      </div>
+    {:else}
+      <div class="hint">
+        <div class="hint-head">≡ Holds a Duplicate of {focus.name}.{h.of}</div>
+        <ol>
+          <li title="{files[h.file]}:{h.line}">
+            <span class="hop">{node.name}.{h.member}</span>
+            <span class="where">same shape, {h.nodes} syntax nodes · {baseName(files[h.file])}:{h.line}</span>
           </li>
-        {/each}
-      </ol>
-    </div>
+        </ol>
+      </div>
+    {/if}
   {/each}
   <div class="weight">
     Weight {item.weight}: {item.count} {item.count === 1 ? "Reference" : "References"} in {item.members}

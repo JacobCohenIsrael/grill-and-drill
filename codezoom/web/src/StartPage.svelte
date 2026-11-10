@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import type { NodeInfo, Tangle } from "../../src/shared/types";
+  import type { DuplicateGroup, NodeInfo, Tangle } from "../../src/shared/types";
   import Search from "./Search.svelte";
 
   interface Props {
@@ -8,12 +8,17 @@
     nodes: NodeInfo[];
     /** Every Tangle, biggest first (ADR 0008). */
     tangles: Tangle[];
+    /** Every group of Duplicates, biggest body first (ADR 0009). */
+    duplicates: DuplicateGroup[];
+    files: string[];
     query: string;
     onJump: (id: string) => void;
   }
-  let { nodes, tangles, query, onJump }: Props = $props();
-  /** Names shown per Tangle before "+N more". */
+  let { nodes, tangles, duplicates, files, query, onJump }: Props = $props();
+  /** Names shown per Tangle or group before "+N more". */
   const NAMES = 6;
+  /** Tangles and groups listed. */
+  const LISTED = 12;
   let q = $state(untrack(() => query));
 
   const top = $derived(
@@ -24,7 +29,8 @@
   );
   const byId = $derived(new Map(nodes.map((n) => [n.id, n])));
   // a Tangle is all types or all assets: hidden assets take their Tangles with them
-  const shownTangles = $derived(tangles.filter((t) => byId.has(t[0].id)).slice(0, 12));
+  const shownTangles = $derived(tangles.filter((t) => byId.has(t[0].id)).slice(0, LISTED));
+  const shownGroups = $derived(duplicates.slice(0, LISTED));
 </script>
 
 <main>
@@ -59,6 +65,26 @@
       </ul>
     {:else}
       <p class="none">None: no node can reach itself through its Dependencies.</p>
+    {/if}
+    <h2>Duplicates <span>(members whose bodies have the same shape once names and literals are ignored)</span></h2>
+    {#if shownGroups.length}
+      <ul class="tangles dups">
+        {#each shownGroups as g, i (i)}
+          <li>
+            <span class="size" title="{g.members.length} members, each body {g.nodes} syntax nodes">≡ {g.nodes} nodes</span>
+            {#each g.members.slice(0, NAMES) as m, j (j)}
+              {@const n = byId.get(m.id)}
+              <button onclick={() => onJump(m.id)} title="{n?.full ?? m.id}&#10;{files[m.file]}:{m.line}">{n?.name ?? m.id}.{m.member}</button>
+            {/each}
+            {#if g.members.length > NAMES}<span class="more">+{g.members.length - NAMES} more</span>{/if}
+          </li>
+        {/each}
+      </ul>
+      {#if duplicates.length > shownGroups.length}
+        <p class="none">+{duplicates.length - shownGroups.length} more groups: <code>codezoom hints --kind duplicate</code> lists them all.</p>
+      {/if}
+    {:else}
+      <p class="none">None: no two own members of 50 syntax nodes or more have the same shape.</p>
     {/if}
   {/if}
 </main>
@@ -134,6 +160,12 @@
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     min-width: 44px;
+  }
+  .dups .size {
+    min-width: 76px;
+  }
+  .dups button {
+    font: 600 12px var(--font-code);
   }
   .tangles button {
     display: inline-block;

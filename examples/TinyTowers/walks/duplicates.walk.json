@@ -1,0 +1,70 @@
+{
+  "name": "Duplicates: on the Focus first, on a neighbour only when it holds one of the Focus's",
+  "start": "CannonTower",
+  "expect": {
+    "focus": "CannonTower",
+    "duplicates": 1,
+    "dependencies": [{ "name": "Tower", "edge": "inherits", "duplicate": false }],
+    "absent": { "dependents": ["FrostTower"], "dependencies": ["FrostTower"] }
+  },
+  "steps": [
+    {
+      "drill": "Tower",
+      "expect": {
+        "focus": "Tower",
+        "duplicates": 0,
+        "dependents": [
+          { "name": "CannonTower", "edge": "inherits", "duplicate": false },
+          { "name": "FrostTower", "edge": "inherits", "duplicate": false },
+          { "name": "TowerShop", "duplicate": false }
+        ]
+      }
+    },
+    {
+      "drill": "FrostTower",
+      "expect": {
+        "focus": "FrostTower",
+        "duplicates": 1,
+        "dependencies": [{ "name": "Tower", "duplicate": false }],
+        "absent": { "dependents": ["CannonTower"], "dependencies": ["CannonTower"] }
+      }
+    },
+    {
+      "jump": "WaveSpawner",
+      "expect": { "focus": "WaveSpawner", "duplicates": 2, "dependencies": [{ "name": "WaveConfig", "duplicate": false }] }
+    },
+    {
+      "jump": "TowerShop",
+      "expect": {
+        "focus": "TowerShop",
+        "duplicates": 1,
+        "dependents": [{ "name": "TowerShopPanel", "edge": "has", "duplicate": true }, { "name": "GameBootstrap", "duplicate": false }],
+        "dependencies": [{ "name": "Wallet", "duplicate": false }]
+      }
+    },
+    {
+      "drill": "TowerShopPanel",
+      "expect": {
+        "focus": "TowerShopPanel",
+        "duplicates": 1,
+        "dependencies": [{ "name": "TowerShop", "edge": "has", "duplicate": true }, { "name": "TowerConfig", "duplicate": false }]
+      }
+    },
+    {
+      "jump": "Wallet",
+      "expect": { "focus": "Wallet", "duplicates": 0 }
+    },
+    {
+      "jump": "TinyTowers.Economy.Lives",
+      "expect": { "focus": "Lives", "duplicates": 0 }
+    },
+    {
+      "jump": "TinyTowers.Enemies.Path",
+      "expect": { "focus": "Path", "duplicates": 0, "dependents": [{ "name": "PathFollower", "duplicate": false }] }
+    },
+    {
+      "jump": "BakedPath",
+      "expect": { "focus": "BakedPath", "duplicates": 0, "dependencies": [{ "name": "UnityEngine", "duplicate": false }] }
+    }
+  ]
+}

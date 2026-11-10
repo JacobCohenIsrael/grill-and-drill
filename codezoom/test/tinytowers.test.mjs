@@ -31,11 +31,11 @@ test("indexes TinyTowers to the known totals", () => {
     index.own.assemblies.map((a) => a.assembly),
     ["Assembly-CSharp", "TinyTowers.Core", "TinyTowers.Editor", "TinyTowers.Gameplay", "TinyTowers.UI"],
   );
-  assert.equal(s.types, 47);
-  // 136 edges and 272 References between types; the rest start at its 13 assets (assets.test.mjs)
+  assert.equal(s.types, 48);
+  // 137 edges and 295 References between types; the rest start at its 13 assets (assets.test.mjs)
   assert.equal(s.assets, 13);
-  assert.equal(s.edges, 175);
-  assert.equal(s.references, 312);
+  assert.equal(s.edges, 176);
+  assert.equal(s.references, 335);
   assert.equal(s.libraries, 3);
   assert.equal(s.unresolved, 0);
 });
@@ -53,6 +53,25 @@ test("TinyTowers has four Tangles: two of types, two of assets", () => {
   );
   const sizes = screens.meta.nodes.filter((n) => n.tangle).map((n) => n.tangle);
   assert.equal(sizes.length, 12);
+});
+
+test("TinyTowers has three groups of Duplicates; the generated look-alike and the one under 50 nodes are in none", () => {
+  const name = new Map(screens.meta.nodes.map((n) => [n.id, n.name]));
+  assert.deepEqual(
+    screens.meta.duplicates.map((g) => [g.nodes, ...g.members.map((m) => `${name.get(m.id)}.${m.member}`)]),
+    [
+      [67, "CannonTower.StaggerNear()", "FrostTower.ChillNear()"],
+      [60, "WaveSpawner.DelayFrom()", "WaveSpawner.EnemiesFrom()"],
+      [56, "TowerShop.PriceLabel()", "TowerShopPanel.LabelFor()"],
+    ],
+  );
+  // BakedPath.g.cs repeats Path.LengthFrom, but it is generated: in the graph, without shapes
+  const baked = index.graph.types.get("TinyTowers.Enemies.BakedPath");
+  assert.ok(baked);
+  assert.ok(baked.members.every((m) => !m.shapes));
+  assert.equal(index.graph.types.get("TinyTowers.Enemies.Path").members.find((m) => m.name === "LengthFrom").shapes[0].nodes, 53);
+  // Wallet.Restore and Lives.Restore have the same shape at 45 nodes: too small to keep
+  assert.ok(index.graph.types.get("TinyTowers.Economy.Wallet").members.every((m) => !m.shapes));
 });
 
 test("a Cycle's hover evidence goes hop by hop, each with its first Reference", () => {
@@ -103,6 +122,19 @@ test("a walk checks the Focus's Tangle size only where it states it", () => {
   assert.deepEqual(problems({ ...tower, expect: { tangle: 0 } }), ["Tower is in a Tangle of 2, expected none"]);
 });
 
+test("a walk checks Duplicates only where it states them", () => {
+  const cannon = { start: "CannonTower", steps: [] };
+  assert.deepEqual(problems({ ...cannon, expect: { dependencies: ["Tower"] } }), []);
+  assert.deepEqual(problems({ ...cannon, expect: { duplicates: 1 } }), []);
+  assert.deepEqual(problems({ ...cannon, expect: { duplicates: 0 } }), ["CannonTower has 1 Duplicate, expected 0"]);
+  assert.deepEqual(problems({ ...tower, expect: { duplicates: 2 } }), ["Tower has 0 Duplicates, expected 2"]);
+  const shop = { start: "TowerShop", steps: [] };
+  assert.deepEqual(problems({ ...shop, expect: { dependents: [{ name: "TowerShopPanel", duplicate: false }, { name: "GameBootstrap", duplicate: true }] } }), [
+    "Dependents: TowerShopPanel holds Duplicate of a Focus member, expected none",
+    "Dependents: GameBootstrap holds no Duplicate of a Focus member, expected one",
+  ]);
+});
+
 test("a walk reports a neighbour that should be absent", () => {
   assert.deepEqual(problems({ ...tower, expect: { absent: { dependents: ["BuildGrid"] } } }), ["Dependents: BuildGrid should not be there"]);
 });
@@ -132,6 +164,9 @@ test("parseWalk rejects typos instead of passing them", () => {
   assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { dependents: [{ name: "A", size: "huge" }] } })), /size must be one of/);
   assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { tangle: 1 } })), /tangle must be 0 or a Tangle size/);
   assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { tangle: "2" } })), /tangle must be 0 or a Tangle size/);
+  assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { duplicates: -1 } })), /duplicates must be a count/);
+  assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { dependents: [{ name: "A", duplicate: "yes" }] } })), /duplicate must be true or false/);
+  assert.throws(() => parseWalk(JSON.stringify({ start: "Tower", steps: [], expect: { duplicate: 1 } })), /unknown key "duplicate"/);
 });
 
 test("codezoom walk exits 0, 1 or 2", () => {

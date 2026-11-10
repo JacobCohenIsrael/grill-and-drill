@@ -112,10 +112,10 @@ test("mcp screen: rows are paged and filtered, totals always given", async () =>
 
     const unity = await call("screen", { focus: "UnityEngine" });
     assert.equal(unity.focus.kind, "library");
-    // 28 types, and two prefabs whose UIDocument is UnityEngine's
-    assert.deepEqual([unity.dependents.total, unity.dependents.shown], [30, 25], "25 per row by default");
+    // 29 types, and two prefabs whose UIDocument is UnityEngine's
+    assert.deepEqual([unity.dependents.total, unity.dependents.shown], [31, 25], "25 per row by default");
     const rest = await call("screen", { focus: "UnityEngine", offset: 25 });
-    assert.equal(rest.dependents.shown, 5);
+    assert.equal(rest.dependents.shown, 6);
     assert.equal(unity.dependencies.total, 0);
   });
 });
@@ -210,7 +210,58 @@ test("mcp hints: every node in a Tangle, biggest Tangle first, code before asset
     assert.deepEqual([code.total, code.matching, code.offset, code.shown], [6, 2, 1, 1]);
     assert.deepEqual(code.items.map((n) => `${n.name} ${n.tangle.number}`), ["TowerConfig 2"]);
 
-    assert.match((await call("hints", { kind: "smell" })).error, /kind must be one of cycle/);
+    assert.match((await call("hints", { kind: "smell" })).error, /kind must be one of cycle, duplicate/);
+  });
+});
+
+test("mcp hints kind duplicate: every member in a group, biggest body first", async () => {
+  await withServer(async ({ call }) => {
+    const all = await call("hints", { kind: "duplicate" });
+    assert.equal(all.hint, "duplicate");
+    assert.deepEqual(all.groups, [
+      { nodes: 67, members: 2 },
+      { nodes: 60, members: 2 },
+      { nodes: 56, members: 2 },
+    ]);
+    assert.deepEqual([all.total, all.matching, all.offset, all.shown], [6, 6, 0, 6]);
+    assert.deepEqual(all.items[0], {
+      name: "CannonTower",
+      full: "TinyTowers.Towers.CannonTower",
+      kind: "class",
+      label: "MonoBehaviour",
+      member: "StaggerNear()",
+      at: "Assets/TinyTowers/Gameplay/Towers/CannonTower.cs:20",
+      group: { number: 1, nodes: 67, size: 2 },
+    });
+    // the filter matches a type's name, or a member's
+    const label = await call("hints", { kind: "duplicate", filter: "Label", limit: 1, offset: 1 });
+    assert.deepEqual([label.total, label.matching, label.offset, label.shown], [6, 2, 1, 1]);
+    assert.deepEqual(label.items.map((i) => `${i.group.number} ${i.name}.${i.member}`), ["3 TowerShopPanel.LabelFor()"]);
+    const member = await call("hints", { kind: "duplicate", filter: "From" });
+    assert.deepEqual(member.items.map((i) => i.member), ["DelayFrom()", "EnemiesFrom()"]);
+  });
+});
+
+test("mcp screen: the Focus's Duplicates, and a neighbour holding one", async () => {
+  await withServer(async ({ call }) => {
+    const shop = await call("screen", { focus: "TowerShop" });
+    assert.deepEqual(shop.focus.duplicates, [
+      {
+        member: "PriceLabel()",
+        at: "Assets/TinyTowers/Gameplay/Economy/TowerShop.cs:27",
+        nodes: 56,
+        group: 3,
+        duplicates: [{ name: "TowerShopPanel", full: "TinyTowers.UI.TowerShopPanel", member: "LabelFor()", at: "Assets/TinyTowers/UI/TowerShopPanel.cs:26" }],
+      },
+    ]);
+    const panel = shop.dependents.items.find((n) => n.name === "TowerShopPanel");
+    assert.deepEqual(panel.hints, [{ hint: "duplicate", of: "PriceLabel()", member: "LabelFor()", at: "Assets/TinyTowers/UI/TowerShopPanel.cs:26", nodes: 56 }]);
+    assert.equal(panel.cycle, false);
+    // a private member counts too, and its Duplicate may share no Screen with it (FrostTower is not on CannonTower's)
+    const cannon = await call("screen", { focus: "CannonTower" });
+    assert.deepEqual(cannon.focus.duplicates.map((d) => `${d.member} = ${d.duplicates.map((o) => `${o.name}.${o.member}`)}`), ["StaggerNear() = FrostTower.ChillNear()"]);
+    assert.ok([...cannon.dependents.items, ...cannon.dependencies.items].every((n) => n.hints.length === 0));
+    assert.deepEqual((await call("screen", { focus: "Tower" })).focus.duplicates, []);
   });
 });
 
@@ -255,6 +306,7 @@ test("--json answers exactly as the tools do", async () => {
     assert.deepEqual(cliJson("search", "WSp").out, await call("search", { query: "WSp" }));
     assert.deepEqual(cliJson("references", "Tower", "TowerConfig").out, await call("references", { from: "Tower", to: "TowerConfig" }));
     assert.deepEqual(cliJson("hints", "--limit", "3", "--no-assets").out, await call("hints", { limit: 3, assets: false }));
+    assert.deepEqual(cliJson("hints", "--kind", "duplicate", "--filter", "Tower").out, await call("hints", { kind: "duplicate", filter: "Tower" }));
   });
   const miss = cliJson("screen", "NoSuchType");
   assert.equal(miss.code, 1);
